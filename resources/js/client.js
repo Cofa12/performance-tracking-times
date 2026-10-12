@@ -17,8 +17,17 @@
   if (typeof window === 'undefined' || window.RequestTiming) return;
 
   var HEADER = 'x-request-timing';
-  var STORE_KEY = 'performance-tracking:offset';
+  var STORE_KEY = 'performance-tracking:offsets';
   var OFFSET_TTL_MS = 10 * 60 * 1000;
+  var CALC_TTL_MS = 60 * 1000;        // an older calculating mark is stale
+  var MAX_DRIFT_MS = 1000;            // monotonic vs wall clock disagreement we tolerate
+  var MATCH_BEFORE_MS = 50;           // Resource Timing entry may start this much before the call...
+  var MATCH_AFTER_MS = 1000;          // ...or this much after it
+  var ENTRY_WAIT_MS = 5000;           // then fall back to our own timestamps
+  var FLUSH_DELAY_MS = 2000;
+  var FLUSH_SIZE = 20;
+  var BATCH_SIZE = 50;                // the server accepts at most 50 per report
+
   var script = document.currentScript;
   var endpoint = (window.RequestTimingConfig && window.RequestTimingConfig.endpoint) ||
     (script && script.getAttribute('data-endpoint'));
@@ -27,16 +36,24 @@
 
   var hasPerf = !!(window.performance && performance.now && performance.timeOrigin);
   var origFetch = window.fetch;
+  var endpointUrl = absolute(endpoint);
   var queue = [];
   var pending = [];
   var flushTimer = null;
   var calcStart = null;
   var used = {};
   var usedKeys = [];
-  var best = loadOffset();
+  var offsets = loadOffsets();
 
   function now() {
     return hasPerf ? performance.timeOrigin + performance.now() : Date.now();
+  }
+
+  // performance.now() can stand still while the machine sleeps, leaving
+  // timeOrigin + now() behind the wall clock. Offsets measured against such
+  // a clock are not stored or reused.
+  function clockOk() {
+    return !hasPerf || Math.abs(Date.now() - now()) < MAX_DRIFT_MS;
   }
 
   function absolute(url) {
@@ -50,60 +67,84 @@
       var i = part.indexOf('=');
       if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
     });
-    return out.id ? { id: out.id, t1: parseFloat(out.t1), t2: parseFloat(out.t2) } : null;
+    return out.id ? { id: out.id, t1: parseFloat(out.t1), t2: parseFloat(out.t2), node: out.n || '' } : null;
   }
 
-  function loadOffset() {
+  // Each server behind a load balancer has its own clock, so offsets are
+  // kept per origin and node.
+  function offsetKey(url, node) {
+    var origin;
+    try { origin = new URL(url, location.href).origin; } catch (e) { origin = location.origin; }
+    return origin + '|' + (node || '');
+  }
+
+  function loadOffsets() {
     try {
-      var o = JSON.parse(sessionStorage.getItem(STORE_KEY));
-      if (o && now() - o.at < OFFSET_TTL_MS) return o;
+      var stored = JSON.parse(sessionStorage.getItem(STORE_KEY)) || {};
+      var fresh = {};
+      for (var key in stored) {
+        if (stored[key] && Math.abs(Date.now() - stored[key].at) < OFFSET_TTL_MS) fresh[key] = stored[key];
+      }
+      return fresh;
     } catch (e) { /* storage unavailable */ }
-    return null;
+    return {};
   }
 
   // Keep the offset measured on the fastest exchange: the less time spent
-  // on the wire, the less room for the two legs to differ.
-  function updateOffset(t0, t1, t2, t3) {
+  // on the wire, the less room for the two legs to differ. `at` is wall
+  // clock time, so the TTL holds across pages and sleep.
+  function updateOffset(key, t0, t1, t2, t3) {
+    if (!clockOk()) return;
     var rtt = (t3 - t0) - (t2 - t1);
-    if (rtt < 0) return;
-    if (!best || rtt <= best.rtt || now() - best.at > OFFSET_TTL_MS) {
-      best = { offset: ((t1 - t0) + (t2 - t3)) / 2, rtt: rtt, at: now() };
-      try { sessionStorage.setItem(STORE_KEY, JSON.stringify(best)); } catch (e) { /* ignore */ }
+    if (!(rtt >= 0)) return;
+    var best = offsets[key];
+    var wall = Date.now();
+    if (!best || rtt <= best.rtt || wall - best.at > OFFSET_TTL_MS) {
+      offsets[key] = { offset: ((t1 - t0) + (t2 - t3)) / 2, rtt: rtt, at: wall };
+      try { sessionStorage.setItem(STORE_KEY, JSON.stringify(offsets)); } catch (e) { /* ignore */ }
     }
+  }
+
+  function offsetFor(key) {
+    var o = offsets[key];
+    return o && clockOk() && Date.now() - o.at < OFFSET_TTL_MS ? round(o.offset) : null;
   }
 
   function begin(url) {
     var meta = { url: absolute(url), calledAt: now(), calc: null };
     if (calcStart !== null) {
-      meta.calc = Math.max(0, meta.calledAt - calcStart);
+      var elapsed = meta.calledAt - calcStart;
+      if (elapsed >= 0 && elapsed <= CALC_TTL_MS) meta.calc = elapsed;
       calcStart = null;
     }
     return meta;
   }
 
+  // complete: whether "now" is when the whole response arrived (XHR
+  // loadend) or only its headers (fetch resolving).
   function arrived(meta, header, complete) {
     var server = parse(header);
-    if (!server || meta.url === absolute(endpoint)) return;
+    if (!server || meta.url === endpointUrl) return;
     meta.server = server;
     meta.arrivedAt = now();
     meta.complete = complete;
 
-    var entry = findEntry(meta, hasPerf ? performance.getEntriesByName(meta.url, 'resource') : []);
+    var entry = findEntry(meta, hasPerf && performance.getEntriesByName ? performance.getEntriesByName(meta.url, 'resource') : []);
     if (entry) return finish(meta, entry);
 
     pending.push(meta);
     // Fall back to our own timestamps if no resource entry shows up.
-    meta.timer = setTimeout(function () { take(meta); finish(meta, null); }, 5000);
+    meta.timer = setTimeout(function () { take(meta); finish(meta, null); }, ENTRY_WAIT_MS);
   }
 
   function findEntry(meta, entries) {
-    if (!entries.length) return null;
+    if (!entries || !entries.length) return null;
     var start = meta.calledAt - performance.timeOrigin;
     var match = null;
     for (var i = 0; i < entries.length; i++) {
       var e = entries[i];
       if (e.name !== meta.url || e.responseEnd === 0 || used[e.name + '@' + e.startTime]) continue;
-      if (e.startTime < start - 50 || e.startTime > start + 1000) continue;
+      if (e.startTime < start - MATCH_BEFORE_MS || e.startTime > start + MATCH_AFTER_MS) continue;
       if (!match || Math.abs(e.startTime - start) < Math.abs(match.startTime - start)) match = e;
     }
     if (match) {
@@ -124,6 +165,7 @@
     var t0 = meta.calledAt;
     var t3 = meta.arrivedAt;
     var connect = null;
+    var headersOnly = !meta.complete;
 
     if (entry) {
       var o = performance.timeOrigin;
@@ -135,10 +177,12 @@
         connect = Math.max(0, t0 - meta.calledAt);
       }
       t3 = o + entry.responseEnd;
+      headersOnly = false;
     }
 
     var s = meta.server;
-    updateOffset(t0, s.t1, s.t2, t3);
+    var key = offsetKey(meta.url, s.node);
+    updateOffset(key, t0, s.t1, s.t2, t3);
 
     queue.push({
       id: s.id,
@@ -146,7 +190,8 @@
       t3: round(t3),
       calc_ms: meta.calc === null ? null : round(meta.calc),
       connect_ms: connect === null ? null : round(connect),
-      offset_ms: best ? round(best.offset) : null
+      offset_ms: offsetFor(key),
+      headers_only: headersOnly
     });
     schedule();
   }
@@ -154,19 +199,20 @@
   function round(n) { return Math.round(n * 1000) / 1000; }
 
   function schedule() {
-    if (queue.length >= 20) return flush();
-    if (!flushTimer) flushTimer = setTimeout(flush, 2000);
+    if (queue.length >= FLUSH_SIZE) return flush();
+    if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_DELAY_MS);
   }
 
   function flush() {
     clearTimeout(flushTimer);
     flushTimer = null;
     if (!queue.length) return;
-    var body = JSON.stringify({ timings: queue.splice(0, 50) });
-    // text/plain keeps sendBeacon free of a CORS preflight.
+    var body = JSON.stringify({ timings: queue.splice(0, BATCH_SIZE) });
+    // text/plain keeps the request "simple": no CORS preflight, for the
+    // beacon and for the fetch fallback alike.
     var sent = navigator.sendBeacon && navigator.sendBeacon(endpoint, new Blob([body], { type: 'text/plain' }));
     if (!sent && origFetch) {
-      origFetch.call(window, endpoint, { method: 'POST', body: body, keepalive: true, headers: { 'Content-Type': 'application/json' } })
+      origFetch.call(window, endpoint, { method: 'POST', body: body, keepalive: true, headers: { 'Content-Type': 'text/plain;charset=UTF-8' } })
         .catch(function () { /* ignore */ });
     }
     if (queue.length) schedule();
@@ -206,10 +252,18 @@
     XMLHttpRequest.prototype.send = function () {
       var xhr = this;
       if (xhr.__perfUrl !== undefined) {
-        var meta = begin(xhr.__perfUrl);
-        xhr.addEventListener('loadend', function () {
-          try { arrived(meta, xhr.getResponseHeader(HEADER), true); } catch (e) { /* never break the app */ }
-        });
+        // One listener per object, reading the current send's meta: an XHR
+        // reused for several requests must not report the earlier ones again.
+        xhr.__perfMeta = begin(xhr.__perfUrl);
+        if (!xhr.__perfListening) {
+          xhr.__perfListening = true;
+          xhr.addEventListener('loadend', function () {
+            var meta = xhr.__perfMeta;
+            xhr.__perfMeta = null;
+            if (!meta) return;
+            try { arrived(meta, xhr.getResponseHeader(HEADER), true); } catch (e) { /* never break the app */ }
+          });
+        }
       }
       return send.apply(this, arguments);
     };
@@ -219,6 +273,7 @@
   // script can read, so the Blade tag carries the page's timing id, and the
   // Navigation Timing entry says when its request left and its HTML arrived.
   var pageId = script && script.getAttribute('data-request-id');
+  var pageNode = script && script.getAttribute('data-node');
   if (pageId && hasPerf && performance.getEntriesByType) {
     var reportPage = function () {
       var nav = performance.getEntriesByType('navigation')[0];
@@ -230,7 +285,8 @@
         t3: round(o + nav.responseEnd),
         calc_ms: null,
         connect_ms: round(Math.max(0, nav.requestStart - nav.fetchStart)),
-        offset_ms: best ? round(best.offset) : null
+        offset_ms: offsetFor(offsetKey(location.href, pageNode)),
+        headers_only: false
       });
       schedule();
     };
@@ -244,10 +300,22 @@
   window.addEventListener('pagehide', flush);
 
   window.RequestTiming = {
-    /** Marks the start of client-side work; the next request records it as "calculating". */
+    /** Marks the start of client-side work; the next request (within a minute) records it as "calculating". */
     markCalculating: function () { calcStart = now(); },
-    /** Runs fn and records the time until the first request it sends as "calculating". */
-    measure: function (fn) { calcStart = now(); return fn(); },
+    /**
+     * Runs fn and records the time until the first request it sends as
+     * "calculating". The mark is dropped once fn (or the promise it returns)
+     * settles, so it never leaks to an unrelated later request.
+     */
+    measure: function (fn) {
+      var mark = calcStart = now();
+      var clear = function () { if (calcStart === mark) calcStart = null; };
+      var result;
+      try { result = fn(); } catch (e) { clear(); throw e; }
+      if (result && typeof result.then === 'function') result.then(clear, clear);
+      else clear();
+      return result;
+    },
     flush: flush
   };
 })();

@@ -4,9 +4,14 @@ namespace Cofa\PerformanceTracking;
 
 use Cofa\PerformanceTracking\Console\PruneCommand;
 use Cofa\PerformanceTracking\Http\Middleware\RecordPerformance;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class PerformanceTrackingServiceProvider extends ServiceProvider
@@ -27,6 +32,15 @@ class PerformanceTrackingServiceProvider extends ServiceProvider
 
         Blade::directive('performanceTrackingScript', fn () => '<?php echo \\'.ClientScript::class.'::tag(); ?>');
 
+        RateLimiter::for('performance-tracking', function (Request $request) {
+            $limits = config('performance-tracking.client_rate_limit', []);
+
+            return [
+                Limit::perMinute((int) ($limits['per_ip'] ?? 120))->by('ip:'.$request->ip()),
+                Limit::perMinute((int) ($limits['global'] ?? 10000))->by('global'),
+            ];
+        });
+
         if ($this->app->runningInConsole()) {
             $this->publishes([
                 __DIR__.'/../config/performance-tracking.php' => config_path('performance-tracking.php'),
@@ -41,6 +55,12 @@ class PerformanceTrackingServiceProvider extends ServiceProvider
             ], 'performance-tracking-views');
 
             $this->commands([PruneCommand::class]);
+
+            $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
+                if ($cron = config('performance-tracking.prune_schedule')) {
+                    $schedule->command(PruneCommand::class)->cron($cron)->withoutOverlapping();
+                }
+            });
         }
 
         if (! config('performance-tracking.enabled')) {
@@ -48,7 +68,9 @@ class PerformanceTrackingServiceProvider extends ServiceProvider
         }
 
         $this->app['events']->listen(QueryExecuted::class, function (QueryExecuted $event) {
-            $this->app->make(Recorder::class)->recordQuery($event);
+            // The current container, not $this->app: Octane serves each
+            // request from a clone, and the request's recorder lives there.
+            Container::getInstance()->make(Recorder::class)->recordQuery($event);
         });
 
         if (config('performance-tracking.auto_register_middleware') && $this->app->bound(Kernel::class)) {

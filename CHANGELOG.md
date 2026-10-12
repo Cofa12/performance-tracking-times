@@ -1,0 +1,29 @@
+# Changelog
+
+## 2.0.0 - 2026-10-12
+
+### Security
+- `Server-Timing` (per-request query counts and durations) is no longer sent outside `local` unless `expose_server_timing` is on.
+- The web server's receive stamp is read from the `REQUEST_START_TIME` FastCGI param, or from `X-Request-Start` only behind a trusted proxy (`request_start_header_trust`); stamps implying more than `max_delay_ms` of delay are ignored.
+- Paths are stored as route templates (`/reset/{token}`) by default (`path_mode`); IP addresses are only stored with `store_ip`.
+- Malformed client report bodies return 422 instead of a 500.
+- Client reports whose send time is far from the server's receive time (an id replayed from a cached page) are rejected, as are reports with more than `max_network_ms` on the wire.
+- The client report endpoint uses a `performance-tracking` rate limiter with a per-IP and a global limit.
+
+### Fixed
+- Under Octane, database queries were not counted: the query listener resolved the recorder from the base container instead of the request's.
+- One invalid entry no longer discards the whole batch of client reports; the response lists `accepted` and `rejected`.
+- Two concurrent reports for the same request can no longer both apply.
+- Streamed responses: the body's time and its queries are recorded (`streamed`, `stream_ms`); file responses are marked as streamed.
+- Peak memory is measured per request in long-running workers.
+- The stored user id no longer triggers authentication (no extra query or remember-me login after the response is built).
+- Dashboard: percentiles are nearest-rank and reported separately for server time and end-to-end response time; the average breakdown uses one set of requests; the summary no longer loads the query log; ordering is stable within one second; no `COUNT(*)` on every visit; search treats `%` and `_` literally on every database; invalid request ids return 404.
+- Browser client: clock offsets are kept per server node; a reused XHR no longer reports earlier requests again; a calculating mark expires after a minute and `measure()` never leaks it; offsets are not used when the page clock has drifted from the wall clock; responses without a Resource Timing entry are marked `headers_only`; the fallback report request no longer needs a CORS preflight.
+
+### Changed
+- Recording is off outside `local` by default (`PERFORMANCE_TRACKING_ENABLED`).
+- `performance-tracking:prune` deletes in batches (`--chunk`) and is scheduled hourly (`prune_schedule`).
+- Request ids are time-ordered UUIDs (v7 on Laravel 11+).
+- The client script URL is versioned and cached for a year.
+- Requires `laravel/framework` rather than individual `illuminate/*` packages.
+- New migration: `streamed`, `stream_ms`, `headers_only` columns and indexes on `server_received_ms` and `(status, server_received_ms)`.

@@ -11,15 +11,26 @@ namespace Cofa\PerformanceTracking;
  */
 final class ClientScript
 {
+    public const PATH = __DIR__.'/../resources/js/client.js';
+
+    private static ?string $version = null;
+
     public static function tag(): string
     {
-        $id = app(Recorder::class)->currentId();
+        $recorder = app(Recorder::class);
+        $id = $recorder->currentId();
 
         return sprintf(
             '<script src="%s" data-endpoint="%s"%s></script>',
-            e(route('performance-tracking.client-script')),
+            e(route('performance-tracking.client-script', ['v' => self::version()])),
             e(route('performance-tracking.client-report')),
-            $id ? ' data-request-id="'.e($id).'"' : '',
+            $id ? ' data-request-id="'.e($id).'" data-node="'.e($recorder->nodeId()).'"' : '',
         );
+    }
+
+    /** A content hash, so browsers fetch the script again after an upgrade. */
+    public static function version(): string
+    {
+        return self::$version ??= (string) hash_file('crc32b', self::PATH);
     }
 }

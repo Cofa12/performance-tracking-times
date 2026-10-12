@@ -124,9 +124,9 @@
             @foreach ($timeline->missing as $m)
                 <p class="note"><strong>{{ $m['label'] }} not measured.</strong> {{ $m['reason'] }}</p>
             @endforeach
-            @if ($timing->network_split === 'symmetric')
-                <p class="note">The client sent no clock offset, so the network time is split evenly between the two directions.</p>
-            @endif
+            @foreach ($timeline->notes as $note)
+                <p class="note">{{ $note }}</p>
+            @endforeach
         </section>
 
         <section class="card">
@@ -146,6 +146,9 @@
                             ['… of which database', 'Server', $timing->db_ms],
                             ['Network return', 'Client + server', $timing->network_return_ms],
                         ];
+                        if ($timing->streamed) {
+                            $values[] = ['… body streamed by the server', 'Server', $timing->stream_ms];
+                        }
                     @endphp
                     @foreach ($values as [$label, $where, $ms])
                         <tr>

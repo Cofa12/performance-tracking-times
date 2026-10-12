@@ -24,20 +24,27 @@ final class Timeline
      * @param  array<int, array{key: string, kind: string, label: string, start: float, ms: float, depth: int, detail?: string}>  $rows
      * @param  array<int, array{kind: string, label: string, ms: float}>  $stack
      * @param  array<int, array{label: string, reason: string}>  $missing
+     * @param  string[]  $notes
      */
     private function __construct(
         public readonly float $total,
         public readonly array $rows,
         public readonly array $stack,
         public readonly array $missing,
+        public readonly array $notes,
     ) {
     }
 
-    public static function for(PerformanceTiming $t): self
+    /**
+     * @param  bool  $detailed  false for list rows: skips the query log, which
+     *                          the list does not load.
+     */
+    public static function for(PerformanceTiming $t, bool $detailed = true): self
     {
         $rows = [];
         $stack = [];
         $missing = [];
+        $notes = [];
         $cursor = 0.0;
 
         $add = function (string $key, string $kind, string $label, float $ms, int $depth = 0, ?string $detail = null) use (&$rows, &$cursor) {
@@ -62,6 +69,13 @@ final class Timeline
             }
             $cursor += $out;
             $stack[] = ['kind' => 'network', 'label' => 'Network out', 'ms' => $out];
+
+            if ($t->network_split === 'symmetric') {
+                $notes[] = 'The client sent no clock offset, so the network time is split evenly between the two directions.';
+            }
+            if ($t->headers_only) {
+                $notes[] = 'The client only saw when the response headers arrived, so network return does not include downloading the body.';
+            }
         } else {
             $missing[] = ['label' => 'Calculating & network', 'reason' => 'No client report for this request. Load the client script or post timings from your app.'];
         }
@@ -72,7 +86,8 @@ final class Timeline
             $add('delay', 'delay', 'Delay', $t->delay_ms, 0, 'Waiting for a PHP worker');
             $stack[] = ['kind' => 'delay', 'label' => 'Delay', 'ms' => $t->delay_ms];
         } else {
-            $missing[] = ['label' => 'Delay', 'reason' => 'The web server did not send an X-Request-Start header.'];
+            $missing[] = ['label' => 'Delay', 'reason' => 'The web server did not stamp when it received the request (REQUEST_START_TIME or a trusted X-Request-Start).'
+                .($t->hasClientData() ? ' Any time spent queueing is counted in network out.' : '')];
         }
 
         $rows[] = ['key' => 'service', 'kind' => 'service', 'label' => 'Service', 'start' => $cursor, 'ms' => $t->service_ms, 'depth' => 0, 'detail' => 'Server works on the request'];
@@ -80,7 +95,7 @@ final class Timeline
         $add('boot', 'service', 'Framework boot', $t->boot_ms, 1);
         $add('app', 'service', 'Middleware + controller', $t->app_ms, 1);
 
-        foreach ($t->queries ?? [] as $i => $q) {
+        foreach ($detailed ? ($t->queries ?? []) : [] as $i => $q) {
             $rows[] = [
                 'key' => 'query-'.$i,
                 'kind' => 'service',
@@ -92,11 +107,22 @@ final class Timeline
             ];
         }
 
+        $returnStart = $cursor;
+
         if ($t->hasClientData()) {
             $add('network_return', 'network', 'Network return', (float) $t->network_return_ms, 0, 'Response travels back and downloads');
             $stack[] = ['kind' => 'network', 'label' => 'Network return', 'ms' => (float) $t->network_return_ms];
         }
 
-        return new self(max($cursor, 0.001), $rows, $stack, $missing);
+        if ($t->streamed) {
+            if ($t->stream_ms !== null) {
+                $rows[] = ['key' => 'stream', 'kind' => 'service', 'label' => 'Streaming the body', 'start' => $returnStart, 'ms' => $t->stream_ms, 'depth' => 1,
+                    'detail' => 'The server produced the body while sending it, after the headers'];
+                $cursor = max($cursor, $returnStart + $t->stream_ms);
+            }
+            $notes[] = 'This is a streamed or file response: its body was produced or read while it was sent, so that time falls inside network return rather than service.';
+        }
+
+        return new self(max($cursor, 0.001), $rows, $stack, $missing, $notes);
     }
 }

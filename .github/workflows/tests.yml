@@ -8,8 +8,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.3', '8.4']
+        php: ['8.1', '8.2', '8.3', '8.4']
         laravel: ['10.*', '11.*', '12.*', '13.*']
+        exclude:
+          # Laravel 11 and 12 need PHP 8.2, Laravel 13 needs 8.3.
+          - { laravel: '11.*', php: '8.1' }
+          - { laravel: '12.*', php: '8.1' }
+          - { laravel: '13.*', php: '8.1' }
+          - { laravel: '13.*', php: '8.2' }
         include:
           # Laravel 10 and 11 no longer get security fixes, so every release
           # carries open advisories and Composer refuses to install them.
@@ -40,39 +46,40 @@ jobs:
       - name: Install dependencies
         run: |
           if [ "${{ matrix.allow-insecure }}" = "true" ]; then composer config policy.advisories.block false; fi
-          composer require "illuminate/support:${{ matrix.laravel }}" --no-update --no-interaction
+          composer require "laravel/framework:${{ matrix.laravel }}" --no-update --no-interaction
           composer require "orchestra/testbench:${{ matrix.testbench }}" ${{ matrix.phpunit && format('"phpunit/phpunit:{0}"', matrix.phpunit) || '' }} --dev --no-update --no-interaction
           composer update --prefer-dist --no-interaction --no-progress
 
       - name: Run tests
         run: vendor/bin/phpunit
 
-  mysql:
+  databases:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - laravel: '10.*'
-            testbench: '8.*'
-            phpunit: '^10.5'
-            allow-insecure: true
-          - laravel: '13.*'
-            testbench: '11.*'
+          # MySQL 5.7 defaults to explicit_defaults_for_timestamp=OFF with
+          # strict mode, like many shared hosts; it is where schema mistakes show up.
+          - { db: mysql, image: 'mysql:5.7', port: 3306, laravel: '10.*', testbench: '8.*', phpunit: '^10.5', allow-insecure: true }
+          - { db: mysql, image: 'mysql:5.7', port: 3306, laravel: '13.*', testbench: '11.*' }
+          - { db: mysql, image: 'mysql:8.0', port: 3306, laravel: '13.*', testbench: '11.*' }
+          - { db: pgsql, image: 'postgres:16', port: 5432, laravel: '10.*', testbench: '8.*', phpunit: '^10.5', allow-insecure: true }
+          - { db: pgsql, image: 'postgres:16', port: 5432, laravel: '13.*', testbench: '11.*' }
 
-    name: PHP 8.3 / Laravel ${{ matrix.laravel }} / MySQL 5.7
+    name: PHP 8.3 / Laravel ${{ matrix.laravel }} / ${{ matrix.image }}
 
-    # MySQL 5.7 defaults to explicit_defaults_for_timestamp=OFF with strict
-    # mode, like many shared hosts; it is where schema mistakes show up.
     services:
-      mysql:
-        image: mysql:5.7
+      database:
+        image: ${{ matrix.image }}
         env:
           MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
           MYSQL_DATABASE: testing
-        ports: ['3306:3306']
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testing
+        ports: ['${{ matrix.port }}:${{ matrix.port }}']
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-cmd="${{ matrix.db == 'mysql' && 'mysqladmin ping -h 127.0.0.1' || 'pg_isready -U postgres' }}"
           --health-interval=5s --health-timeout=5s --health-retries=20
 
     steps:
@@ -81,20 +88,51 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: pdo_mysql
+          extensions: pdo_mysql, pdo_pgsql
           coverage: none
 
       - name: Install dependencies
         run: |
           if [ "${{ matrix.allow-insecure }}" = "true" ]; then composer config policy.advisories.block false; fi
-          composer require "illuminate/support:${{ matrix.laravel }}" --no-update --no-interaction
+          composer require "laravel/framework:${{ matrix.laravel }}" --no-update --no-interaction
           composer require "orchestra/testbench:${{ matrix.testbench }}" ${{ matrix.phpunit && format('"phpunit/phpunit:{0}"', matrix.phpunit) || '' }} --dev --no-update --no-interaction
           composer update --prefer-dist --no-interaction --no-progress
 
       - name: Run tests
         run: vendor/bin/phpunit
         env:
-          TEST_DB: mysql
-          MYSQL_HOST: 127.0.0.1
-          MYSQL_PORT: 3306
-          MYSQL_DATABASE: testing
+          TEST_DB: ${{ matrix.db }}
+          DB_HOST: 127.0.0.1
+          DB_PORT: ${{ matrix.port }}
+          DB_DATABASE: testing
+          DB_USERNAME: ${{ matrix.db == 'mysql' && 'root' || 'postgres' }}
+          DB_PASSWORD: ${{ matrix.db == 'mysql' && '' || 'postgres' }}
+
+  javascript:
+    runs-on: ubuntu-latest
+    name: Browser client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/js/client.test.mjs
+
+  static-analysis:
+    runs-on: ubuntu-latest
+    name: PHPStan
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      # Larastan follows the newest Laravel only, so it is installed here
+      # rather than in require-dev, where it would constrain the test matrix.
+      - name: Install dependencies
+        run: composer require --dev larastan/larastan --no-interaction --no-progress -W
+
+      - name: Analyse
+        run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress

@@ -13,12 +13,12 @@
     <div class="stack-gap">
         <div class="tiles">
             <div class="card tile">
-                <div class="label">Median response time</div>
-                <div class="value">{{ Format::ms($summary['p50']) }}</div>
+                <div class="label">Response time, median / p95</div>
+                <div class="value">{{ Format::ms($summary['client']['p50']) }} <span class="muted">/</span> {{ Format::ms($summary['client']['p95']) }}</div>
             </div>
             <div class="card tile">
-                <div class="label">95th percentile</div>
-                <div class="value">{{ Format::ms($summary['p95']) }}</div>
+                <div class="label">Server time, median / p95</div>
+                <div class="value">{{ Format::ms($summary['server']['p50']) }} <span class="muted">/</span> {{ Format::ms($summary['server']['p95']) }}</div>
             </div>
             <div class="card tile">
                 <div class="label">Requests with client timings</div>
@@ -36,6 +36,10 @@
                         <span><span class="sw k-{{ $s['kind'] }}"></span>{{ $s['label'] }}<b class="num">{{ Format::ms($s['ms']) }}</b></span>
                     @endforeach
                 </div>
+                <p class="muted">
+                    Averaged over the {{ number_format($summary['basis']['count']) }} {{ $summary['basis']['client'] ? 'requests with client timings' : 'requests (none has client timings)' }};
+                    calculating and delay over those that measured them.
+                </p>
             @else
                 <p class="muted">No requests recorded yet.</p>
             @endif
@@ -79,7 +83,7 @@
                                 <a href="{{ route('performance-tracking.show', $t->id) }}"><span class="ink-2">{{ $t->method }}</span> {{ $t->path }}</a>
                             </td>
                             <td><span class="pill s-{{ intdiv($t->status, 100) }}">{{ $t->status }}</span></td>
-                            <td>@include('performance-tracking::partials.bar', ['segments' => Timeline::for($t)->stack, 'scale' => $maxTotal])</td>
+                            <td>@include('performance-tracking::partials.bar', ['segments' => Timeline::for($t, detailed: false)->stack, 'scale' => $maxTotal])</td>
                             <td class="right num">
                                 {{ Format::ms($t->totalMs()) }}
                                 @unless ($t->hasClientData())<span class="muted" title="Server time only, no client report">*</span>@endunless

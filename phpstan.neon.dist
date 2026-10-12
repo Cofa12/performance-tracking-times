@@ -1,0 +1,22 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 6
+    paths:
+        - src
+        - routes
+        - database
+    ignoreErrors:
+        # Package views are registered under a namespace at runtime, which
+        # Larastan's view-string check cannot see.
+        -
+            identifier: argument.type
+            message: '#expects view-string\|null, string given#'
+            path: src/Http/Controllers/DashboardController.php
+        # Guards for older supported versions (Laravel 10 has no Str::uuid7,
+        # older Symfony no StreamedResponse::getCallback, custom kernels may
+        # lack prependMiddleware). Analysis runs against the newest versions.
+        -
+            identifier: function.alreadyNarrowedType
+            message: '#method_exists\(\) with .*(uuid7|getCallback|prependMiddleware)#'

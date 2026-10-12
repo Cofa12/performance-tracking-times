@@ -1,0 +1,51 @@
+{
+    "name": "cofa/performance-tracking-times",
+    "description": "Per-request timing breakdown for Laravel (calculating, network out, delay, service, network return) with a dashboard and a waterfall diagram for every request.",
+    "keywords": ["laravel", "performance", "response-time", "server-timing", "monitoring", "waterfall"],
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.1",
+        "illuminate/console": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/database": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/http": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/routing": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/support": "^10.0|^11.0|^12.0|^13.0",
+        "illuminate/view": "^10.0|^11.0|^12.0|^13.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0|^9.0|^10.0|^11.0",
+        "phpunit/phpunit": "^10.5|^11.0|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Cofa\\PerformanceTracking\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Cofa\\PerformanceTracking\\Tests\\": "tests/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Mahmoud Gamal",
+            "email": "112869567+Cofa12@users.noreply.github.com"
+        }
+    ],
+    "scripts": {
+        "test": "phpunit"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Cofa\\PerformanceTracking\\PerformanceTrackingServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

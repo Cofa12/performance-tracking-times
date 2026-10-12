@@ -26,28 +26,31 @@ return new class extends Migration
             $table->decimal('server_received_ms', 16, 3); // t1
             $table->decimal('server_sent_ms', 16, 3);     // t2
 
-            // Server-side segments, milliseconds.
-            $table->float('delay_ms')->nullable();
-            $table->float('boot_ms');
-            $table->float('app_ms');
-            $table->float('service_ms');
-            $table->float('server_ms');
-            $table->float('db_ms')->default(0);
+            // Server-side segments, milliseconds. double, not float: Laravel 10
+            // turns float() into double(8, 2) on MySQL, which rounds and overflows.
+            $table->double('delay_ms')->nullable();
+            $table->double('boot_ms');
+            $table->double('app_ms');
+            $table->double('service_ms');
+            $table->double('server_ms');
+            $table->double('db_ms')->default(0);
             $table->unsignedInteger('db_count')->default(0);
             $table->json('queries')->nullable();
-            $table->float('memory_peak_mb')->nullable();
+            $table->double('memory_peak_mb')->nullable();
 
             // Client-side segments, filled in by the client report.
-            $table->float('calc_ms')->nullable();
-            $table->float('connect_ms')->nullable();
-            $table->float('network_out_ms')->nullable();
-            $table->float('network_return_ms')->nullable();
-            $table->float('clock_offset_ms')->nullable();
-            $table->float('response_ms')->nullable();
+            $table->double('calc_ms')->nullable();
+            $table->double('connect_ms')->nullable();
+            $table->double('network_out_ms')->nullable();
+            $table->double('network_return_ms')->nullable();
+            $table->double('clock_offset_ms')->nullable();
+            $table->double('response_ms')->nullable();
             $table->string('network_split', 16)->nullable(); // "offset" | "symmetric"
             $table->timestamp('client_reported_at')->nullable();
 
-            $table->timestamp('created_at', 6)->index();
+            // With a default: MySQL servers running explicit_defaults_for_timestamp=OFF
+            // otherwise give this column an invalid zero-date default and refuse the table.
+            $table->timestamp('created_at', 6)->useCurrent()->index();
         });
     }
 

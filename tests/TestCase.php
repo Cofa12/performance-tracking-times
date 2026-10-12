@@ -18,10 +18,25 @@ abstract class TestCase extends Orchestra
     protected function defineEnvironment($app): void
     {
         $app['config']->set('database.default', 'testing');
-        $app['config']->set('database.connections.testing', [
-            'driver' => 'sqlite',
-            'database' => ':memory:',
-            'prefix' => '',
-        ]);
+
+        // SQLite by default; TEST_DB=mysql runs the same suite against MySQL.
+        $app['config']->set('database.connections.testing', getenv('TEST_DB') === 'mysql'
+            ? [
+                'driver' => 'mysql',
+                'host' => getenv('MYSQL_HOST') ?: '127.0.0.1',
+                'port' => getenv('MYSQL_PORT') ?: '3306',
+                'database' => getenv('MYSQL_DATABASE') ?: 'testing',
+                'username' => getenv('MYSQL_USER') ?: 'root',
+                'password' => getenv('MYSQL_PASSWORD') ?: '',
+                'charset' => 'utf8mb4',
+                'collation' => 'utf8mb4_unicode_ci',
+                'prefix' => '',
+                'strict' => true,
+            ]
+            : [
+                'driver' => 'sqlite',
+                'database' => ':memory:',
+                'prefix' => '',
+            ]);
     }
 }

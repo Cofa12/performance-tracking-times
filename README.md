@@ -71,13 +71,22 @@ The server cannot measure the network legs on its own. Only the client knows whe
 
 ### Browser (Blade, Inertia, Livewire, any JS frontend)
 
-Add the script to your layout's `<head>`:
+Add the script to your layout's `<head>`, before any other script:
 
 ```blade
 @performanceTrackingScript
 ```
 
-The script wraps `fetch` and `XMLHttpRequest`, so axios works too. It reads precise timestamps from the Resource Timing API and sends them in batches with `navigator.sendBeacon`. It never blocks or changes your requests.
+It wraps `fetch` and `XMLHttpRequest` (so axios and jQuery work too), reads precise timestamps from the Resource Timing API, and sends them in batches with `navigator.sendBeacon`. It never blocks or changes your requests.
+
+On a server-rendered page, the tag also carries that page's timing id, so the **page load itself** gets network times (from the Navigation Timing API), not only the AJAX calls made after it. The first page of a visit splits network time evenly; once the browser has made an AJAX call it knows the clock offset and splits it precisely.
+
+For a frontend on another origin (React, Vue, …), load it directly instead:
+
+```html
+<script>window.RequestTimingConfig = { endpoint: 'https://api.example.com/performance-tracking/api/client' };</script>
+<script src="https://api.example.com/performance-tracking/client.js"></script>
+```
 
 To also measure **calculating** time, wrap the work that comes before a request:
 
@@ -158,7 +167,7 @@ Schedule::command('performance-tracking:prune')->hourly();
 
 - Timings are written in the middleware's `terminate` step, after the response has been sent. Storing them does not add to the response time.
 - Under Octane the recorder is scoped per request, and the PHP start time comes from `REQUEST_TIME_FLOAT`, not `LARAVEL_START`.
-- A full-page navigation (the HTML document itself) has no client report. Only `fetch` and XHR calls are reported.
+- Full-page navigations are reported only for pages that include `@performanceTrackingScript` (it carries the page's timing id). A frontend on another origin reports its `fetch`/XHR calls.
 
 ## Testing
 

@@ -5,7 +5,8 @@
  * X-Request-Timing header it records when the request left (t0) and when the
  * response finished arriving (t3), using the Resource Timing API when it is
  * available, and reports them back so the server can split the network time
- * into its outbound and return legs.
+ * into its outbound and return legs. When loaded through the Blade tag, it
+ * also reports the page load itself (Navigation Timing).
  *
  *   RequestTiming.measure(() => { const body = build(); return fetch(url, { body }) })
  *     -> the time spent before the request is sent is recorded as "calculating".
@@ -212,6 +213,29 @@
       }
       return send.apply(this, arguments);
     };
+  }
+
+  // The page itself. A server-rendered page has no response header the
+  // script can read, so the Blade tag carries the page's timing id, and the
+  // Navigation Timing entry says when its request left and its HTML arrived.
+  var pageId = script && script.getAttribute('data-request-id');
+  if (pageId && hasPerf && performance.getEntriesByType) {
+    var reportPage = function () {
+      var nav = performance.getEntriesByType('navigation')[0];
+      if (!nav || !(nav.requestStart > 0) || !(nav.responseEnd > 0)) return;
+      var o = performance.timeOrigin;
+      queue.push({
+        id: pageId,
+        t0: round(o + nav.requestStart),
+        t3: round(o + nav.responseEnd),
+        calc_ms: null,
+        connect_ms: round(Math.max(0, nav.requestStart - nav.fetchStart)),
+        offset_ms: best ? round(best.offset) : null
+      });
+      schedule();
+    };
+    if (document.readyState === 'complete') setTimeout(reportPage, 0);
+    else window.addEventListener('load', function () { setTimeout(reportPage, 0); });
   }
 
   document.addEventListener('visibilitychange', function () {

@@ -25,9 +25,7 @@ class PerformanceTrackingServiceProvider extends ServiceProvider
         $this->loadViewsFrom(__DIR__.'/../resources/views', 'performance-tracking');
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
-        Blade::directive('performanceTrackingScript', function () {
-            return "<?php echo '<script src=\"'.e(route('performance-tracking.client-script')).'\" data-endpoint=\"'.e(route('performance-tracking.client-report')).'\" defer></script>'; ?>";
-        });
+        Blade::directive('performanceTrackingScript', fn () => '<?php echo \\'.ClientScript::class.'::tag(); ?>');
 
         if ($this->app->runningInConsole()) {
             $this->publishes([

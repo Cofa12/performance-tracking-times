@@ -13,6 +13,8 @@ A Laravel package that breaks every request's response time into its parts and s
 
 The dashboard at `/performance-tracking` lists recent requests with a stacked bar for each one, plus averages and percentiles. Open a request to see its waterfall, a table of the values, and the SQL of its queries placed on the timeline.
 
+![Waterfall diagram of one request](docs/waterfall.jpg)
+
 ## Requirements
 
 - PHP 8.1+

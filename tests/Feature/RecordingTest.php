@@ -44,6 +44,16 @@ class RecordingTest extends TestCase
         $this->assertNull($timing->client_reported_at);
     }
 
+    public function test_stored_server_timestamps_match_the_header_to_the_microsecond(): void
+    {
+        $response = $this->get('/orders');
+        preg_match('/t1=([\d.]+);t2=([\d.]+)/', $response->headers->get('X-Request-Timing'), $m);
+
+        $timing = PerformanceTiming::sole();
+        $this->assertEqualsWithDelta((float) $m[1], $timing->server_received_ms, 0.001);
+        $this->assertEqualsWithDelta((float) $m[2], $timing->server_sent_ms, 0.001);
+    }
+
     public function test_delay_is_not_measured_without_the_web_server_header(): void
     {
         $this->get('/orders')->assertOk();

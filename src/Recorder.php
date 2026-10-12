@@ -148,8 +148,10 @@ class Recorder
                 'status' => $c['status'],
                 'ip' => $c['ip'],
                 'user_id' => $c['user_id'],
-                'server_received_ms' => round($c['received'] * 1000, 3),
-                'server_sent_ms' => round($c['sent'] * 1000, 3),
+                // As strings: PHP casts floats with 14 significant digits,
+                // which would drop the fraction of an epoch-ms timestamp.
+                'server_received_ms' => sprintf('%.3F', $c['received'] * 1000),
+                'server_sent_ms' => sprintf('%.3F', $c['sent'] * 1000),
                 'delay_ms' => $c['delay_ms'],
                 'boot_ms' => $c['boot_ms'],
                 'app_ms' => $c['app_ms'],

@@ -11,8 +11,12 @@ jobs:
         php: ['8.3', '8.4']
         laravel: ['11.*', '12.*', '13.*']
         include:
+          # Laravel 11 no longer gets security fixes, so every release carries
+          # open advisories and Composer refuses to install it. Allow it here
+          # only to keep testing compatibility; nothing from this job ships.
           - laravel: '11.*'
             testbench: '9.*'
+            allow-insecure: true
           - laravel: '12.*'
             testbench: '10.*'
           - laravel: '13.*'
@@ -31,6 +35,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          if [ "${{ matrix.allow-insecure }}" = "true" ]; then composer config policy.advisories.block false; fi
           composer require "illuminate/support:${{ matrix.laravel }}" --no-update --no-interaction
           composer require "orchestra/testbench:${{ matrix.testbench }}" --dev --no-update --no-interaction
           composer update --prefer-dist --no-interaction --no-progress

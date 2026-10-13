@@ -35,7 +35,7 @@ jobs:
     name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }} / SQLite
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -83,7 +83,7 @@ jobs:
           --health-interval=5s --health-timeout=5s --health-retries=20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -106,14 +106,15 @@ jobs:
           DB_PORT: ${{ matrix.port }}
           DB_DATABASE: testing
           DB_USERNAME: ${{ matrix.db == 'mysql' && 'root' || 'postgres' }}
-          DB_PASSWORD: ${{ matrix.db == 'mysql' && '' || 'postgres' }}
+          # Not `db == 'mysql' && '' || ...`: an empty string is falsy in expressions.
+          DB_PASSWORD: ${{ matrix.db == 'pgsql' && 'postgres' || '' }}
 
   javascript:
     runs-on: ubuntu-latest
     name: Browser client
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
       - run: node --test tests/js/client.test.mjs
@@ -122,7 +123,7 @@ jobs:
     runs-on: ubuntu-latest
     name: PHPStan
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: shivammathur/setup-php@v2
         with:

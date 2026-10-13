@@ -8,6 +8,7 @@ use Illuminate\Foundation\Auth\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use PHPUnit\Framework\Attributes\RequiresFunction;
 
 class RecordingTest extends TestCase
 {
@@ -224,6 +225,8 @@ class RecordingTest extends TestCase
         $this->assertSame(1, $timing->db_count);
     }
 
+    // memory_reset_peak_usage() exists from PHP 8.2; on 8.1 the peak cannot be reset.
+    #[RequiresFunction('memory_reset_peak_usage')]
     public function test_peak_memory_is_per_request(): void
     {
         $this->get('/orders');

@@ -290,7 +290,7 @@ $schedule->command('performance-tracking:prune')->hourly();
 ## Notes
 
 - Timings are written in the middleware's `terminate` step. Under PHP-FPM and Octane that runs after the response has been sent, so storing them does not delay the response, although the worker is busy until the insert finishes. Under other SAPIs (Apache mod_php, `php artisan serve`) the connection may stay open until the insert is done.
-- Under Octane the recorder is scoped per request and peak memory is reset per request. The PHP start time is the later of `REQUEST_TIME_FLOAT` and `LARAVEL_START`, so a long-lived worker's boot time is not counted against a request.
+- Under Octane the recorder is scoped per request, and on PHP 8.2+ peak memory is reset per request (PHP 8.1 cannot reset it, so long-running workers there report the worker's peak). The PHP start time is the later of `REQUEST_TIME_FLOAT` and `LARAVEL_START`, so a long-lived worker's boot time is not counted against a request.
 - Full-page navigations are reported only for pages that include `@performanceTrackingScript` (it carries the page's timing id). A frontend on another origin reports its `fetch`/XHR calls.
 
 ## Upgrading

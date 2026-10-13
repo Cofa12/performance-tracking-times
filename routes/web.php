@@ -20,6 +20,8 @@ Route::group([
 
     Route::middleware(array_merge($config['middleware'] ?? ['web'], [Authorize::class]))->group(function () {
         Route::get('/', [DashboardController::class, 'index'])->name('index');
+        Route::get('live', [DashboardController::class, 'live'])->name('live');
         Route::get('requests/{id}', [DashboardController::class, 'show'])->whereUuid('id')->name('show');
+        Route::get('requests/{id}/live', [DashboardController::class, 'showLive'])->whereUuid('id')->name('show-live');
     });
 });

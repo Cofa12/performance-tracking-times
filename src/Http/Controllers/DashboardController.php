@@ -7,6 +7,7 @@ use Cofa\PerformanceTracking\Models\PerformanceTiming;
 use Cofa\PerformanceTracking\Timeline;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Collection;
@@ -18,24 +19,28 @@ class DashboardController extends Controller
 
     public function index(Request $request): View
     {
-        $query = $this->filtered($request);
+        // Only the first page updates live: later pages would shift under the reader.
+        $live = $this->refreshSeconds() > 0 && (int) $request->query('page', 1) <= 1
+            ? route('performance-tracking.live', $request->except('page'))
+            : null;
 
-        // simplePaginate: no COUNT(*) over the whole table on every visit.
-        $timings = $this->newestFirst(clone $query)
-            ->simplePaginate(50, PerformanceTiming::SUMMARY_COLUMNS)
-            ->withQueryString();
-
-        // Summary over the most recent matching requests.
-        $sample = $this->newestFirst(clone $query)
-            ->limit(self::SUMMARY_SIZE)
-            ->get(PerformanceTiming::SUMMARY_COLUMNS);
-
-        return view('performance-tracking::index', [
-            'timings' => $timings,
-            'summary' => self::summary($sample),
-            'maxTotal' => max(0.001, $timings->getCollection()->max(fn (PerformanceTiming $t) => $t->totalMs()) ?? 0),
+        return view('performance-tracking::index', $this->listing($request) + [
             'filters' => $request->only(['q', 'method', 'status', 'slow']),
-            'slowMs' => (int) config('performance-tracking.slow_threshold_ms', 1000),
+            'live' => $live,
+            'refreshSeconds' => $this->refreshSeconds(),
+        ]);
+    }
+
+    /**
+     * The parts of the list page that change, re-rendered for the poller.
+     */
+    public function live(Request $request): JsonResponse
+    {
+        $data = $this->listing($request);
+
+        return $this->fragments([
+            'pt-summary' => view('performance-tracking::partials.summary', $data)->render(),
+            'pt-list' => view('performance-tracking::partials.list', $data)->render(),
         ]);
     }
 
@@ -46,7 +51,77 @@ class DashboardController extends Controller
         return view('performance-tracking::show', [
             'timing' => $timing,
             'timeline' => Timeline::for($timing),
+            'live' => $this->awaitingClient($timing) ? route('performance-tracking.show-live', $timing->id) : null,
+            'refreshSeconds' => $this->refreshSeconds(),
         ]);
+    }
+
+    /**
+     * A request page refreshes until its client report arrives, or until the
+     * report window has passed and none can arrive any more.
+     */
+    public function showLive(string $id): JsonResponse
+    {
+        $timing = PerformanceTiming::findOrFail($id);
+
+        return $this->fragments([
+            'pt-request' => view('performance-tracking::partials.request', [
+                'timing' => $timing,
+                'timeline' => Timeline::for($timing),
+            ])->render(),
+        ], done: ! $this->awaitingClient($timing));
+    }
+
+    /**
+     * @param  array<string, string>  $html  element id => replacement HTML
+     */
+    private function fragments(array $html, bool $done = false): JsonResponse
+    {
+        return response()
+            ->json(['html' => $html, 'done' => $done])
+            ->header('Cache-Control', 'no-store');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function listing(Request $request): array
+    {
+        $query = $this->filtered($request);
+
+        // simplePaginate: no COUNT(*) over the whole table on every visit.
+        $timings = $this->newestFirst(clone $query)
+            ->simplePaginate(50, PerformanceTiming::SUMMARY_COLUMNS)
+            ->withPath(route('performance-tracking.index'))
+            ->withQueryString();
+
+        // Summary over the most recent matching requests.
+        $sample = $this->newestFirst(clone $query)
+            ->limit(self::SUMMARY_SIZE)
+            ->get(PerformanceTiming::SUMMARY_COLUMNS);
+
+        return [
+            'timings' => $timings,
+            'summary' => self::summary($sample),
+            'maxTotal' => max(0.001, $timings->getCollection()->max(fn (PerformanceTiming $t) => $t->totalMs()) ?? 0),
+            'slowMs' => (int) config('performance-tracking.slow_threshold_ms', 1000),
+        ];
+    }
+
+    private function awaitingClient(PerformanceTiming $timing): bool
+    {
+        $window = (int) config('performance-tracking.client_report_window_minutes', 10);
+
+        return $this->refreshSeconds() > 0
+            && ! $timing->hasClientData()
+            && $timing->created_at->greaterThan(now()->subMinutes($window));
+    }
+
+    private function refreshSeconds(): int
+    {
+        $seconds = (int) config('performance-tracking.dashboard_refresh_seconds', 5);
+
+        return $seconds <= 0 ? 0 : max(2, $seconds);
     }
 
     public function clientScript(Request $request): BinaryFileResponse

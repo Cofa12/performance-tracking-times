@@ -1,49 +1,19 @@
 @extends('performance-tracking::layout')
 
-@php use Cofa\PerformanceTracking\Format; use Cofa\PerformanceTracking\Timeline; @endphp
+@php use Cofa\PerformanceTracking\Format; @endphp
 
 @section('title', 'Request timings')
 
 @section('content')
     <header class="top">
         <h1>Request timings</h1>
-        <span class="muted">Last {{ number_format($summary['count']) }} matching requests</span>
+        @include('performance-tracking::partials.live-status', ['label' => 'Live'])
     </header>
 
-    <div class="stack-gap">
-        <div class="tiles">
-            <div class="card tile">
-                <div class="label">Response time, median / p95</div>
-                <div class="value">{{ Format::ms($summary['client']['p50']) }} <span class="muted">/</span> {{ Format::ms($summary['client']['p95']) }}</div>
-            </div>
-            <div class="card tile">
-                <div class="label">Server time, median / p95</div>
-                <div class="value">{{ Format::ms($summary['server']['p50']) }} <span class="muted">/</span> {{ Format::ms($summary['server']['p95']) }}</div>
-            </div>
-            <div class="card tile">
-                <div class="label">Requests with client timings</div>
-                <div class="value">{{ number_format($summary['client_share'] * 100, 0) }}%</div>
-            </div>
+    <div class="stack-gap" @if ($live) data-live="{{ $live }}" data-live-every="{{ $refreshSeconds }}" @endif>
+        <div id="pt-summary">
+            @include('performance-tracking::partials.summary')
         </div>
-
-        <section class="card">
-            <h2>Average breakdown</h2>
-            @php $avgSegments = array_values(array_filter($summary['segments'], fn ($s) => $s['ms'] !== null)); @endphp
-            @if ($avgSegments)
-                @include('performance-tracking::partials.bar', ['segments' => $avgSegments, 'size' => 'lg'])
-                <div class="legend">
-                    @foreach ($summary['segments'] as $s)
-                        <span><span class="sw k-{{ $s['kind'] }}"></span>{{ $s['label'] }}<b class="num">{{ Format::ms($s['ms']) }}</b></span>
-                    @endforeach
-                </div>
-                <p class="muted">
-                    Averaged over the {{ number_format($summary['basis']['count']) }} {{ $summary['basis']['client'] ? 'requests with client timings' : 'requests (none has client timings)' }};
-                    calculating and delay over those that measured them.
-                </p>
-            @else
-                <p class="muted">No requests recorded yet.</p>
-            @endif
-        </section>
 
         <section class="card">
             <form class="filters" method="get">
@@ -64,43 +34,9 @@
                 <button type="submit">Apply</button>
             </form>
 
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Request</th>
-                        <th>Status</th>
-                        <th style="width: 34%">Breakdown</th>
-                        <th class="right">Response time</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    @forelse ($timings as $t)
-                        <tr>
-                            <td class="muted num" title="{{ $t->created_at }}">{{ $t->created_at->format('H:i:s') }}</td>
-                            <td class="path">
-                                <a href="{{ route('performance-tracking.show', $t->id) }}"><span class="ink-2">{{ $t->method }}</span> {{ $t->path }}</a>
-                            </td>
-                            <td><span class="pill s-{{ intdiv($t->status, 100) }}">{{ $t->status }}</span></td>
-                            <td>@include('performance-tracking::partials.bar', ['segments' => Timeline::for($t, detailed: false)->stack, 'scale' => $maxTotal])</td>
-                            <td class="right num">
-                                {{ Format::ms($t->totalMs()) }}
-                                @unless ($t->hasClientData())<span class="muted" title="Server time only, no client report">*</span>@endunless
-                            </td>
-                        </tr>
-                    @empty
-                        <tr><td colspan="5" class="muted">No requests match.</td></tr>
-                    @endforelse
-                    </tbody>
-                </table>
+            <div id="pt-list">
+                @include('performance-tracking::partials.list')
             </div>
-
-            <nav class="pager">
-                <span class="muted">* server time only — no client report for that request</span>
-                @if ($timings->previousPageUrl())<a class="btn" href="{{ $timings->previousPageUrl() }}">Newer</a>@endif
-                @if ($timings->nextPageUrl())<a class="btn" href="{{ $timings->nextPageUrl() }}">Older</a>@endif
-            </nav>
         </section>
     </div>
 @endsection

@@ -211,6 +211,93 @@ class DashboardTest extends TestCase
         $this->get('/performance-tracking/requests/'.Str::uuid())->assertNotFound();
     }
 
+    public function test_the_first_page_updates_live(): void
+    {
+        $this->allow();
+        $this->timing();
+
+        $this->get('/performance-tracking?method=post')
+            ->assertOk()
+            ->assertSee('data-live="http://localhost/performance-tracking/live?method=post"', false)
+            ->assertSee('data-live-every="5"', false)
+            ->assertSee('id="live-status"', false);
+
+        // Later pages would shift under the reader, so they stay still.
+        $this->get('/performance-tracking?page=2')->assertDontSee('data-live=', false);
+
+        config(['performance-tracking.dashboard_refresh_seconds' => 0]);
+        $this->get('/performance-tracking')->assertDontSee('data-live=', false)->assertDontSee('id="live-status"', false);
+    }
+
+    public function test_the_live_endpoint_returns_the_changing_parts_with_the_filters_applied(): void
+    {
+        $this->allow();
+        $this->timing(['path' => '/orders', 'method' => 'GET']);
+        $this->timing(['path' => '/checkout', 'method' => 'POST']);
+
+        $response = $this->getJson('/performance-tracking/live?method=GET')
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('done', false);
+
+        $html = $response->json('html');
+        $this->assertSame(['pt-summary', 'pt-list'], array_keys($html));
+        $this->assertStringContainsString('/orders', $html['pt-list']);
+        $this->assertStringNotContainsString('/checkout', $html['pt-list']);
+        $this->assertStringContainsString('data-row-id=', $html['pt-list']);
+        $this->assertStringContainsString('Response time, median / p95', $html['pt-summary']);
+    }
+
+    public function test_live_pager_links_point_at_the_dashboard(): void
+    {
+        $this->allow();
+        foreach (range(1, 51) as $i) {
+            $this->timing();
+        }
+
+        $html = $this->getJson('/performance-tracking/live?q=checkout')->json('html.pt-list');
+
+        $this->assertStringContainsString('href="http://localhost/performance-tracking?q=checkout&amp;page=2"', $html);
+    }
+
+    public function test_the_live_endpoint_is_protected_like_the_dashboard(): void
+    {
+        $this->getJson('/performance-tracking/live')->assertForbidden();
+        $this->getJson('/performance-tracking/requests/'.Str::uuid().'/live')->assertForbidden();
+    }
+
+    public function test_a_request_page_updates_until_its_client_report_arrives(): void
+    {
+        $this->allow();
+        $timing = $this->timing(['client_reported_at' => null, 'response_ms' => null]);
+
+        $this->get('/performance-tracking/requests/'.$timing->id)
+            ->assertSee('data-live="http://localhost/performance-tracking/requests/'.$timing->id.'/live"', false)
+            ->assertSee('Waiting for client timings');
+
+        $this->getJson('/performance-tracking/requests/'.$timing->id.'/live')
+            ->assertOk()
+            ->assertJsonPath('done', false)
+            ->assertJsonPath('html.pt-request', fn ($html) => str_contains($html, 'Server time'));
+
+        $timing->forceFill(['client_reported_at' => now(), 'response_ms' => 105])->save();
+
+        $this->getJson('/performance-tracking/requests/'.$timing->id.'/live')
+            ->assertJsonPath('done', true)
+            ->assertJsonPath('html.pt-request', fn ($html) => str_contains($html, 'Response time') && str_contains($html, '105 ms'));
+
+        $this->get('/performance-tracking/requests/'.$timing->id)->assertDontSee('data-live=', false);
+    }
+
+    public function test_a_request_page_stops_waiting_once_no_report_can_arrive(): void
+    {
+        $this->allow();
+        $timing = $this->timing(['client_reported_at' => null, 'response_ms' => null, 'created_at' => now()->subMinutes(11)]);
+
+        $this->get('/performance-tracking/requests/'.$timing->id)->assertDontSee('data-live=', false);
+        $this->getJson('/performance-tracking/requests/'.$timing->id.'/live')->assertJsonPath('done', true);
+    }
+
     public function test_the_client_script_is_served(): void
     {
         $this->get('/performance-tracking/client.js')

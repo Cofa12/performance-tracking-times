@@ -68,7 +68,15 @@ If nginx is a reverse proxy instead (Octane, another host), use the header:
 proxy_set_header X-Request-Start "t=${msec}";
 ```
 
-Because any client can send `X-Request-Start` itself, the header is honoured only on requests that came through a proxy your application trusts ([TrustProxies](https://laravel.com/docs/requests#configuring-trusted-proxies)). Set `request_start_header_trust` to `always` if you cannot configure trusted proxies and your proxy always overwrites the header. With Apache, use `RequestHeader set X-Request-Start "%t"`.
+Because any client can send `X-Request-Start` itself, the header is honoured only on requests that came through a proxy your application trusts ([TrustProxies](https://laravel.com/docs/requests#configuring-trusted-proxies)). Set `request_start_header_trust` to `always` (`PERFORMANCE_TRACKING_TRUST_HEADER=always`) if you cannot configure trusted proxies and your web server always overwrites the header.
+
+With Apache or LiteSpeed (cPanel and most shared hosting), add this to `public_html/.htaccess` and set `PERFORMANCE_TRACKING_TRUST_HEADER=always`, since the web server itself replaces any value a visitor sends:
+
+```apache
+<IfModule mod_headers.c>
+    RequestHeader set X-Request-Start "%t"
+</IfModule>
+```
 
 Stamps more than `max_delay_ms` (60 s) old are ignored. Without a stamp the dashboard shows delay as "not measured", and any queueing time is counted in network out instead.
 
@@ -106,12 +114,7 @@ On a server-rendered page, the tag also carries that page's timing id, so the **
 
 Pages and responses served from a cache (a CDN, a full-page cache, `Cache-Control: public`) carry the timing id of the request that produced them. The server rejects reports whose send time is far from that request when it can tell, but send tracked pages with `Cache-Control: private` if they could be cached.
 
-For a frontend on another origin (React, Vue, …), load it directly instead, and set `PERFORMANCE_TRACKING_ALLOW_ORIGIN` to that origin so the browser exposes the timing header:
-
-```html
-<script>window.RequestTimingConfig = { endpoint: 'https://api.example.com/performance-tracking/api/client' };</script>
-<script src="https://api.example.com/performance-tracking/client.js"></script>
-```
+For a frontend on another origin (React, Vue, Next.js, …) or a mobile app, see [section 3](#3-api-with-a-separate-frontend-or-mobile-app).
 
 To also measure **calculating** time, wrap the work that comes before a request:
 
@@ -127,9 +130,62 @@ RequestTiming.markCalculating();
 
 When the browser provides no Resource Timing entry for a `fetch` (some cross-origin setups), the script falls back to the moment the response headers arrived; such requests are marked and their network return does not include downloading the body.
 
-### Mobile apps and other clients
+## 3. API with a separate frontend or mobile app
 
-Read the `X-Request-Timing` header from the response and POST your timestamps to `/{path}/api/client` (`/performance-tracking/api/client` by default):
+When Laravel serves only an API and the frontend lives elsewhere (a React/Vue/Angular/Next.js app on another domain, or a Flutter/React Native/Swift/Kotlin app), three people each do one part. A printable version of this section for your developers is in [docs/frontend-setup.pdf](docs/frontend-setup.pdf).
+
+### On the API (API owner, once)
+
+1. Name the frontend's address in the API's `.env`, so browsers there may read the timing header. Separate several frontends with commas. Mobile apps need nothing here.
+
+   ```dotenv
+   PERFORMANCE_TRACKING_ALLOW_ORIGIN=https://app.example.com
+   ```
+
+2. Reload the configuration with `php artisan config:clear`.
+3. The frontend must already be allowed by the API's CORS settings (`config/cors.php`, `allowed_origins`). If it can call the API today, it is.
+
+### Web frontend (web developer)
+
+Add one tag to the HTML template's `<head>`, before the app's own scripts. It wraps `fetch` and `XMLHttpRequest`, so axios, ky, jQuery and plain `fetch` are all covered, and the app's API calls stay as they are.
+
+```html
+<script src="https://api.example.com/performance-tracking/client.js"
+        data-endpoint="https://api.example.com/performance-tracking/api/client"></script>
+```
+
+With Next.js, add it to the root layout with `next/script`:
+
+```tsx
+<Script
+  src="https://api.example.com/performance-tracking/client.js"
+  data-endpoint="https://api.example.com/performance-tracking/api/client"
+  strategy="beforeInteractive"
+/>
+```
+
+- If the site sends a Content-Security-Policy, allow the API's domain in `script-src`.
+- To measure calculating time, wrap the work before a request in `RequestTiming.measure()` (see above). In TypeScript, guard it so the app still works when an ad blocker blocks the script:
+
+  ```ts
+  export const measure = <T,>(fn: () => T): T =>
+    window.RequestTiming ? window.RequestTiming.measure(fn) : fn();
+  ```
+
+Page loads of a separate frontend are not reported, only its API calls: the page itself does not come from Laravel, so it has no timing id.
+
+### Mobile app (mobile developer)
+
+There is no script to load, so the app reports the timestamps itself with a small wrapper around its HTTP client:
+
+1. Before the call, note the time in epoch milliseconds (`t0`).
+2. After the response, note the time again (`t3`) and read the `X-Request-Timing` header: `id=…;t1=…;t2=…;n=…`. Not every response has it (the server samples), so skip those without.
+3. Per server `n`, keep the clock offset from the fastest exchange: `((t1 - t0) + (t2 - t3)) / 2`, where fastest means the smallest `(t3 - t0) - (t2 - t1)`. Refresh it every 10 minutes.
+4. Every few seconds (or at 20 entries), and when the app goes to the background, POST up to 50 entries as JSON to `/{path}/api/client` (`/performance-tracking/api/client` by default).
+
+Ready-made wrappers: [Flutter](docs/clients/request_timing.dart) and [React Native / JavaScript without a page](docs/clients/requestTiming.ts). Swift and Kotlin follow the same four steps.
+
+The report format:
 
 ```json
 {
@@ -147,9 +203,22 @@ Read the `X-Request-Timing` header from the response and POST your timestamps to
 
 - `t0` is when the request was sent and `t3` is when the response finished arriving, both in epoch milliseconds on the client clock. Both are required.
 - `calc_ms`, `connect_ms`, `offset_ms` and `headers_only` are optional. Set `headers_only` when `t3` is when the headers arrived rather than the whole body.
-- `offset_ms` is the server clock minus the client clock. Estimate it from the request with the lowest round trip: `((t1 - t0) + (t2 - t3)) / 2`, using `t1` and `t2` from the header, and keep one per `n` (server node). Without it, the network time is split evenly between the two directions.
+- Without `offset_ms`, the network time is split evenly between the two directions.
 - Send up to 50 timings per call, within 10 minutes of the request. Each request accepts one report. Invalid or implausible entries are skipped without affecting the rest; the response says how many were `accepted` and `rejected`.
 - Reports are rate limited to 120 per minute per IP address and 10 000 per minute in total (`client_rate_limit`). Behind a load balancer, configure TrustProxies, or every client shares the balancer's address.
+
+### Check that it works
+
+1. **The header is there.** In the browser's devtools (Network tab), an API response has an `X-Request-Timing` header, and for a web frontend also `Access-Control-Expose-Headers: X-Request-Timing`. Only sampled requests carry it, so check a few. From a terminal:
+
+   ```bash
+   curl -s -D - -o /dev/null -H "Origin: https://app.example.com" https://api.example.com/api/your-endpoint | grep -i -E 'x-request-timing|access-control-expose-headers|timing-allow-origin'
+   ```
+
+2. **Reports are sent.** About two seconds after a call, a request to `/performance-tracking/api/client` answers with `accepted` above 0.
+3. **The dashboard fills in.** Rows without a `*` have client timings.
+
+Don't cache API responses publicly (`Cache-Control: public`, a CDN cache): a cached response carries another request's timing id, and its reports are rejected.
 
 ## How the network split works
 
@@ -163,7 +232,13 @@ server                            t1 ─ delay ─ boot ─ app ─ t2
 - If the offset drifts, a leg is clamped at zero so the total stays correct.
 - `t2` is when the response was ready to send. For streamed and file responses the body is produced while it is sent, so that time falls inside network return; the waterfall shows it separately.
 
-## Dashboard access
+## Dashboard
+
+The dashboard updates itself while it is open: every 5 seconds (`PERFORMANCE_TRACKING_REFRESH_SECONDS`, 0 turns it off) it fetches the latest requests, new rows appear at the top, and a row is highlighted again when its client report arrives. It pauses while the tab is in the background and has a Pause button. Older pages (`?page=2` and on) stay still, so rows do not shift while you read them. A request's page refreshes until its client report arrives, then stops.
+
+It polls instead of keeping a connection open, so it works on any hosting, shared hosting included, without a WebSocket server.
+
+### Access
 
 In the `local` environment the dashboard is open to anyone. Everywhere else, define a gate:
 
@@ -188,9 +263,10 @@ Each row holds the method, the path, the route name, the status, the timings and
 | `enabled` | `true` in `local` only | `PERFORMANCE_TRACKING_ENABLED` |
 | `sample_rate` | `1.0` | Record this fraction of requests; lower it on busy servers |
 | `path` | `performance-tracking` | Dashboard URL prefix |
+| `dashboard_refresh_seconds` | `5` | `PERFORMANCE_TRACKING_REFRESH_SECONDS`; 0 turns live updates off |
 | `expose_server_timing` | `true` in `local` only | `PERFORMANCE_TRACKING_SERVER_TIMING` |
 | `request_start_server_param` / `request_start_header` | `REQUEST_START_TIME` / `X-Request-Start` | Where the web server's receive stamp comes from |
-| `request_start_header_trust` | `proxies` | `proxies`, `always` or `never` |
+| `request_start_header_trust` | `proxies` | `PERFORMANCE_TRACKING_TRUST_HEADER`: `proxies`, `always` or `never` |
 | `ignore_paths` / `ignore_methods` | telescope, horizon, … / `OPTIONS`, `HEAD` | |
 | `path_mode` / `store_ip` / `store_user_id` | `route` / `false` / `true` | See above |
 | `record_queries` / `query_limit` | `true` / `50` | |

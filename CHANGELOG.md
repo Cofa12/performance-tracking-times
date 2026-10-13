@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.0 - 2026-10-13
+
+### Added
+- The dashboard updates itself while open: new requests appear every 5 seconds (`PERFORMANCE_TRACKING_REFRESH_SECONDS`, 0 turns it off), rows are highlighted when they arrive or receive their client report, polling pauses in background tabs, and a request's page refreshes until its client report arrives.
+- `PERFORMANCE_TRACKING_TRUST_HEADER` sets `request_start_header_trust` from the environment (`always` for Apache/LiteSpeed `.htaccess` setups).
+- README section and printable guide (`docs/frontend-setup.pdf`) for APIs with a separate web frontend or mobile app, with reference reporting clients for Flutter and React Native in `docs/clients/`.
+
 ## 2.0.0 - 2026-10-12
 
 ### Security

@@ -46,6 +46,10 @@ return [
 
     'middleware' => ['web'],
 
+    // The dashboard fetches new requests this often (seconds) while it is
+    // open and visible, so it updates without reloading. 0 turns it off.
+    'dashboard_refresh_seconds' => (int) env('PERFORMANCE_TRACKING_REFRESH_SECONDS', 5),
+
     /*
     |--------------------------------------------------------------------------
     | Client report endpoint
@@ -93,7 +97,7 @@ return [
 
     'request_start_header' => 'X-Request-Start',
 
-    'request_start_header_trust' => 'proxies', // "proxies" | "always" | "never"
+    'request_start_header_trust' => env('PERFORMANCE_TRACKING_TRUST_HEADER', 'proxies'), // "proxies" | "always" | "never"
 
     // A larger delay than this is treated as a bad stamp and ignored.
     'max_delay_ms' => 60000,

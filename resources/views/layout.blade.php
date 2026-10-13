@@ -133,6 +133,26 @@
         button, .btn { background: var(--surface-2); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font: inherit; cursor: pointer; }
 
         nav.pager { display: flex; gap: 12px; justify-content: flex-end; align-items: center; margin-top: 12px; }
+        .h2-note { font-size: 13px; font-weight: 400; margin-left: 6px; }
+
+        /* Live updates */
+        .live-bar { display: flex; align-items: center; gap: 8px; }
+        .live { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+        .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status-good); }
+        .live[data-state="paused"] .dot, .live[data-state="done"] .dot { background: var(--muted); }
+        .live[data-state="error"] .dot { background: var(--status-warning); }
+        .live[data-state="off"] .dot { background: var(--status-critical); }
+        .btn-sm { font-size: 12px; padding: 3px 10px; }
+        tr.is-new td { animation: pt-new 2.4s ease-out; }
+        @keyframes pt-new { from { background: color-mix(in srgb, var(--accent) 18%, transparent); } to { background: transparent; } }
+        @media (prefers-reduced-motion: no-preference) {
+            .live[data-state="live"] .dot { animation: pt-pulse 2s ease-in-out infinite; }
+            @keyframes pt-pulse { 50% { opacity: .35; } }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            tr.is-new td { animation: none; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+        }
+        button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
         #tip {
             position: fixed; pointer-events: none; z-index: 10; display: none; max-width: 420px;
@@ -171,6 +191,119 @@
             tip.style.left = Math.max(8, x) + 'px';
             tip.style.top = y + 'px';
         });
+    })();
+
+    // Live updates: the element with data-live names a URL that answers
+    // {html: {elementId: html}, done: bool}. Polled while the tab is visible.
+    (function () {
+        var root = document.querySelector('[data-live]');
+        if (!root || !window.fetch) return;
+
+        var url = root.getAttribute('data-live');
+        var every = Math.max(2, Number(root.getAttribute('data-live-every')) || 5) * 1000;
+        var doneLabel = root.getAttribute('data-live-done') || 'Up to date';
+        var status = document.getElementById('live-status');
+        var toggle = document.getElementById('live-toggle');
+        var KEY = 'performance-tracking:live';
+        var paused = false;
+        var stopped = false;
+        var failures = 0;
+        var timer = null;
+        var busy = false;
+
+        try { paused = localStorage.getItem(KEY) === 'paused'; } catch (e) { /* storage unavailable */ }
+
+        function show(state, text) {
+            if (!status) return;
+            status.setAttribute('data-state', state);
+            status.querySelector('.t').textContent = text;
+        }
+
+        function schedule(ms) {
+            clearTimeout(timer);
+            timer = null;
+            if (!paused && !stopped && !document.hidden) timer = setTimeout(poll, ms);
+        }
+
+        // Rows carry data-row-id; ids not on the page before are highlighted.
+        function apply(html) {
+            Object.keys(html).forEach(function (id) {
+                var el = document.getElementById(id);
+                if (!el) return;
+                var seen = {};
+                el.querySelectorAll('[data-row-id]').forEach(function (n) { seen[n.getAttribute('data-row-id')] = true; });
+                el.innerHTML = html[id];
+                el.querySelectorAll('[data-row-id]').forEach(function (n) {
+                    if (!seen[n.getAttribute('data-row-id')]) n.classList.add('is-new');
+                });
+            });
+        }
+
+        function poll() {
+            if (busy || paused || stopped) return;
+            busy = true;
+            fetch(url, { headers: { Accept: 'application/json' }, credentials: 'same-origin', cache: 'no-store' })
+                .then(function (response) {
+                    if (response.status === 401 || response.status === 403 || response.status === 419) {
+                        stopped = true;
+                        throw new Error('signed out');
+                    }
+                    if (!response.ok) throw new Error('HTTP ' + response.status);
+                    return response.json();
+                })
+                .then(function (data) {
+                    busy = false;
+                    failures = 0;
+                    apply(data.html || {});
+                    if (data.done) {
+                        stopped = true;
+                        show('done', doneLabel);
+                        if (toggle) toggle.hidden = true;
+                        return;
+                    }
+                    show('live', 'Live · updated ' + new Date().toLocaleTimeString());
+                    schedule(every);
+                })
+                .catch(function () {
+                    busy = false;
+                    if (stopped) {
+                        show('off', 'Signed out. Reload the page.');
+                        if (toggle) toggle.hidden = true;
+                        return;
+                    }
+                    failures++;
+                    show('error', 'Connection lost. Retrying…');
+                    schedule(Math.min(60000, every * Math.pow(2, failures)));
+                });
+        }
+
+        function setPaused(value, initial) {
+            paused = value;
+            if (toggle) {
+                toggle.textContent = paused ? 'Resume' : 'Pause';
+                toggle.setAttribute('aria-pressed', paused ? 'true' : 'false');
+            }
+            if (paused) {
+                schedule(0);
+                show('paused', 'Paused');
+            } else if (initial) {
+                schedule(every); // the page itself is fresh
+            } else {
+                poll();
+            }
+        }
+
+        if (toggle) toggle.addEventListener('click', function () {
+            setPaused(!paused, false);
+            try { localStorage.setItem(KEY, paused ? 'paused' : 'live'); } catch (e) { /* ignore */ }
+        });
+
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden) schedule(0);
+            else if (!paused && !stopped) poll();
+        });
+
+        setPaused(paused, true);
     })();
 </script>
 </body>

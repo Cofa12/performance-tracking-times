@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.1.1 - 2026-10-13
 
 ### Fixed
 - CI: MySQL jobs connected with the wrong password, and the per-request peak memory test ran on PHP 8.1, where `memory_reset_peak_usage()` does not exist. No change to the package's behaviour.

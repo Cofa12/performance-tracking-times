@@ -2,6 +2,7 @@
 
 namespace Cofa\PerformanceTracking;
 
+use Cofa\PerformanceTracking\Console\PasswordCommand;
 use Cofa\PerformanceTracking\Console\PruneCommand;
 use Cofa\PerformanceTracking\Http\Middleware\RecordPerformance;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -54,7 +55,7 @@ class PerformanceTrackingServiceProvider extends ServiceProvider
                 __DIR__.'/../resources/views' => resource_path('views/vendor/performance-tracking'),
             ], 'performance-tracking-views');
 
-            $this->commands([PruneCommand::class]);
+            $this->commands([PruneCommand::class, PasswordCommand::class]);
 
             $this->callAfterResolving(Schedule::class, function (Schedule $schedule) {
                 if ($cron = config('performance-tracking.prune_schedule')) {

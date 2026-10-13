@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.0 - 2026-10-13
+
+### Added
+- The dashboard can have its own login page: set `PERFORMANCE_TRACKING_USERNAME` and `PERFORMANCE_TRACKING_PASSWORD` (plain or hashed with `php artisan performance-tracking:password`). Sign-in is rate limited, renews the session, and a credential change signs everyone out. The dashboard header gets a Sign out button; live updates answer 401 when signed out. The `viewPerformanceTracking` gate keeps working alongside it.
+
 ## 2.1.1 - 2026-10-13
 
 ### Fixed

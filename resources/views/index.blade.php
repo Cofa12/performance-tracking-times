@@ -7,7 +7,7 @@
 @section('content')
     <header class="top">
         <h1>Request timings</h1>
-        @include('performance-tracking::partials.live-status', ['label' => 'Live'])
+        @include('performance-tracking::partials.actions', ['label' => 'Live'])
     </header>
 
     <div class="stack-gap" @if ($live) data-live="{{ $live }}" data-live-every="{{ $refreshSeconds }}" @endif>

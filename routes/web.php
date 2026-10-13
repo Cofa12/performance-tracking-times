@@ -2,6 +2,7 @@
 
 use Cofa\PerformanceTracking\Http\Controllers\ClientReportController;
 use Cofa\PerformanceTracking\Http\Controllers\DashboardController;
+use Cofa\PerformanceTracking\Http\Controllers\LoginController;
 use Cofa\PerformanceTracking\Http\Middleware\Authorize;
 use Illuminate\Support\Facades\Route;
 
@@ -17,6 +18,13 @@ Route::group([
     Route::post('api/client', ClientReportController::class)
         ->middleware($config['client_middleware'] ?? [])
         ->name('client-report');
+
+    // The dashboard's own login page, used when a username and password are configured.
+    Route::middleware($config['middleware'] ?? ['web'])->group(function () {
+        Route::get('login', [LoginController::class, 'show'])->name('login');
+        Route::post('login', [LoginController::class, 'store'])->name('login.attempt');
+        Route::post('logout', [LoginController::class, 'destroy'])->name('logout');
+    });
 
     Route::middleware(array_merge($config['middleware'] ?? ['web'], [Authorize::class]))->group(function () {
         Route::get('/', [DashboardController::class, 'index'])->name('index');

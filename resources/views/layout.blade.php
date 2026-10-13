@@ -137,6 +137,8 @@
 
         /* Live updates */
         .live-bar { display: flex; align-items: center; gap: 8px; }
+        .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .actions form { margin: 0; }
         .live { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
         .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status-good); }
         .live[data-state="paused"] .dot, .live[data-state="done"] .dot { background: var(--muted); }

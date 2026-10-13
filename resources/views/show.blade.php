@@ -42,7 +42,7 @@
 @section('content')
     <header class="top">
         <h1><a href="{{ route('performance-tracking.index') }}">Request timings</a> <span class="muted">/</span> Request</h1>
-        @include('performance-tracking::partials.live-status', ['label' => 'Waiting for client timings'])
+        @include('performance-tracking::partials.actions', ['label' => 'Waiting for client timings'])
     </header>
 
     <div id="pt-request" @if ($live) data-live="{{ $live }}" data-live-every="{{ $refreshSeconds }}" data-live-done="Client timings received" @endif>

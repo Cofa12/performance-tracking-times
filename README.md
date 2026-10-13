@@ -240,12 +240,29 @@ It polls instead of keeping a connection open, so it works on any hosting, share
 
 ### Access
 
-In the `local` environment the dashboard is open to anyone. Everywhere else, define a gate:
+**Its own login page** (recommended for APIs and apps without an admin login). Set a username and password in `.env`, and the dashboard asks for them on a sign-in page of its own, in every environment, independent of your application's users:
+
+```dotenv
+PERFORMANCE_TRACKING_USERNAME=admin
+PERFORMANCE_TRACKING_PASSWORD='$2y$12$...'
+```
+
+Generate the password line with the command below. It asks for the password twice and prints the hashed line to paste; the single quotes keep the `$` signs intact. A plain-text password works too, but keep it out of version control.
+
+```bash
+php artisan performance-tracking:password
+```
+
+Then run `php artisan config:clear`. Visiting `/performance-tracking` now redirects to `/performance-tracking/login`, and a **Sign out** button appears in the dashboard's header. Sign-in attempts are limited to 5 per minute per IP address, each sign-in starts a new session, and changing the username or password signs everyone out.
+
+**Your application's login.** Alternatively, or as well, let signed-in users of your application in through a gate:
 
 ```php
 // App\Providers\AppServiceProvider::boot()
 Gate::define('viewPerformanceTracking', fn ($user) => $user->is_admin);
 ```
+
+Without a username and password, the dashboard is open in the `local` environment, and everywhere else only the gate lets people in.
 
 ## Stored data and privacy
 
@@ -263,6 +280,7 @@ Each row holds the method, the path, the route name, the status, the timings and
 | `enabled` | `true` in `local` only | `PERFORMANCE_TRACKING_ENABLED` |
 | `sample_rate` | `1.0` | Record this fraction of requests; lower it on busy servers |
 | `path` | `performance-tracking` | Dashboard URL prefix |
+| `dashboard_auth.username` / `dashboard_auth.password` | `null` | `PERFORMANCE_TRACKING_USERNAME` / `PERFORMANCE_TRACKING_PASSWORD`: the dashboard's own login page |
 | `dashboard_refresh_seconds` | `5` | `PERFORMANCE_TRACKING_REFRESH_SECONDS`; 0 turns live updates off |
 | `expose_server_timing` | `true` in `local` only | `PERFORMANCE_TRACKING_SERVER_TIMING` |
 | `request_start_server_param` / `request_start_header` | `REQUEST_START_TIME` / `X-Request-Start` | Where the web server's receive stamp comes from |

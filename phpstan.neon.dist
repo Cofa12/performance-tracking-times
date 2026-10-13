@@ -13,7 +13,9 @@ parameters:
         -
             identifier: argument.type
             message: '#expects view-string\|null, string given#'
-            path: src/Http/Controllers/DashboardController.php
+            paths:
+                - src/Http/Controllers/DashboardController.php
+                - src/Http/Controllers/LoginController.php
         # Guards for older supported versions (Laravel 10 has no Str::uuid7,
         # older Symfony no StreamedResponse::getCallback, custom kernels may
         # lack prependMiddleware). Analysis runs against the newest versions.

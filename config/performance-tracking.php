@@ -35,11 +35,20 @@ return [
     |--------------------------------------------------------------------------
     | Dashboard
     |--------------------------------------------------------------------------
-    | Outside the "local" environment the dashboard is only reachable when the
-    | "viewPerformanceTracking" gate allows it. Define it in a service provider:
+    | Give the dashboard its own login page by setting a username and
+    | password; it then works the same in every environment. The password
+    | may be plain text or a hash from `php artisan performance-tracking:password`.
+    |
+    | Without them, the dashboard is open in "local" and elsewhere reachable
+    | only when the "viewPerformanceTracking" gate allows the signed-in user:
     |
     |   Gate::define('viewPerformanceTracking', fn ($user) => $user->is_admin);
     */
+    'dashboard_auth' => [
+        'username' => env('PERFORMANCE_TRACKING_USERNAME'),
+        'password' => env('PERFORMANCE_TRACKING_PASSWORD'),
+    ],
+
     'path' => env('PERFORMANCE_TRACKING_PATH', 'performance-tracking'),
 
     'domain' => env('PERFORMANCE_TRACKING_DOMAIN'),

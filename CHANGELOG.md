@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.0 - 2026-10-14
+
+### Added
+- The dashboard's response time and server time tiles show the p95 against the median: how many times slower the slowest 5% of requests are than a typical one, green below 3×, amber up to 5×, red above (`p95_ratio.warning` / `p95_ratio.critical`).
+
+### Fixed
+- Dashboard tiles placed side by side no longer sit at different heights, and they stack on narrow screens.
+
 ## 2.2.0 - 2026-10-13
 
 ### Added

@@ -89,9 +89,21 @@
         h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 
         /* Stat tiles */
-        .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+        .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+        .tiles > .card { margin-top: 0; } /* not the stacked-card spacing: tiles sit side by side */
         .tile .label { color: var(--ink-2); font-size: 13px; }
         .tile .value { font-size: 24px; font-weight: 600; margin-top: 2px; }
+        .tile { display: flex; flex-direction: column; gap: 8px; }
+        .pct { display: flex; gap: 20px; margin: 0; }
+        .pct div { display: grid; gap: 1px; }
+        .pct dt { font-size: 12px; color: var(--muted); }
+        .pct dd { margin: 0; font-size: 22px; font-weight: 600; line-height: 1.15; white-space: nowrap; }
+        .tail { align-self: flex-start; font-size: 12px; padding: 2px 9px; border-radius: 6px; border: 1px solid transparent; }
+        .tail b { font-weight: 700; }
+        .tail-steady { color: var(--status-good); background: color-mix(in srgb, var(--status-good) 12%, transparent); border-color: color-mix(in srgb, var(--status-good) 30%, transparent); }
+        .tail-uneven { color: var(--status-warning); background: color-mix(in srgb, var(--status-warning) 14%, transparent); border-color: color-mix(in srgb, var(--status-warning) 35%, transparent); }
+        .tail-long { color: var(--status-critical); background: color-mix(in srgb, var(--status-critical) 12%, transparent); border-color: color-mix(in srgb, var(--status-critical) 30%, transparent); }
+        .tail-none { color: var(--muted); border-color: var(--border); }
 
         /* Stacked bar: 2px surface gap between segments, rounded outer ends */
         .bar { display: flex; gap: 2px; height: 12px; min-width: 2px; }
@@ -166,6 +178,7 @@
 
         @media (max-width: 640px) {
             .tile .value { font-size: 20px; }
+            .pct dd { font-size: 19px; }
             .hide-sm { display: none; }
         }
     </style>

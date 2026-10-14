@@ -23,9 +23,41 @@ class SummaryTest extends TestCase
     {
         $values = collect(range(1, 20))->shuffle();
 
-        $this->assertSame(['p50' => 10.0, 'p95' => 19.0], DashboardController::percentiles($values));
-        $this->assertSame(['p50' => 7.0, 'p95' => 7.0], DashboardController::percentiles(collect([7])));
-        $this->assertSame(['p50' => null, 'p95' => null], DashboardController::percentiles(collect([null])));
+        $this->assertSame(['p50' => 10.0, 'p95' => 19.0, 'ratio' => 1.9, 'tail' => 'steady'], DashboardController::percentiles($values));
+        $this->assertSame(['p50' => 7.0, 'p95' => 7.0, 'ratio' => 1.0, 'tail' => 'steady'], DashboardController::percentiles(collect([7])));
+        $this->assertSame(['p50' => null, 'p95' => null, 'ratio' => null, 'tail' => null], DashboardController::percentiles(collect([null])));
+    }
+
+    public function test_the_p95_is_measured_against_the_median(): void
+    {
+        // 19 requests at 20 ms and one at 200 ms: median 20 ms, p95 still 20 ms.
+        $steady = DashboardController::percentiles(collect(array_merge(array_fill(0, 19, 20), [200])));
+        $this->assertSame([20.0, 20.0, 1.0, 'steady'], [$steady['p50'], $steady['p95'], $steady['ratio'], $steady['tail']]);
+
+        // The slowest tenth of the requests are 4x slower: p95 / median = 4.
+        $uneven = DashboardController::percentiles(collect(array_merge(array_fill(0, 18, 25), array_fill(0, 2, 100))));
+        $this->assertSame([25.0, 100.0, 4.0, 'uneven'], [$uneven['p50'], $uneven['p95'], $uneven['ratio'], $uneven['tail']]);
+
+        $long = DashboardController::percentiles(collect(array_merge(array_fill(0, 18, 10), array_fill(0, 2, 90))));
+        $this->assertSame([9.0, 'long'], [$long['ratio'], $long['tail']]);
+    }
+
+    public function test_the_tail_levels_use_the_configured_multiples(): void
+    {
+        $this->assertSame('steady', DashboardController::tail(2.99));
+        $this->assertSame('uneven', DashboardController::tail(3.0));
+        $this->assertSame('uneven', DashboardController::tail(5.0));
+        $this->assertSame('long', DashboardController::tail(5.01));
+        $this->assertNull(DashboardController::tail(null));
+
+        config(['performance-tracking.p95_ratio' => ['warning' => 2, 'critical' => 4]]);
+        $this->assertSame('uneven', DashboardController::tail(2.5));
+        $this->assertSame('long', DashboardController::tail(4.5));
+    }
+
+    public function test_a_zero_median_has_no_ratio(): void
+    {
+        $this->assertSame(['p50' => 0.0, 'p95' => 0.0, 'ratio' => null, 'tail' => null], DashboardController::percentiles(collect([0, 0])));
     }
 
     public function test_the_breakdown_is_averaged_over_one_set_of_requests(): void
@@ -41,8 +73,8 @@ class SummaryTest extends TestCase
         $this->assertTrue($summary['basis']['client']);
         $this->assertSame(2, $summary['basis']['count']);
         $this->assertEquals(50, collect($summary['segments'])->firstWhere('label', 'Service')['ms']);
-        $this->assertSame(['p50' => 70.0, 'p95' => 70.0], $summary['client']);
-        $this->assertSame(['p50' => 40.0, 'p95' => 1000.0], $summary['server']);
+        $this->assertSame([70.0, 70.0], [$summary['client']['p50'], $summary['client']['p95']]);
+        $this->assertSame([40.0, 1000.0, 25.0, 'long'], [$summary['server']['p50'], $summary['server']['p95'], $summary['server']['ratio'], $summary['server']['tail']]);
     }
 
     public function test_the_list_timeline_does_not_read_the_query_log(): void

@@ -138,7 +138,24 @@ class DashboardTest extends TestCase
 
         $this->get('/performance-tracking')
             ->assertOk()
-            ->assertSeeInOrder(['Response time, median / p95', '400 ms', '400 ms', 'Server time, median / p95', '50.0 ms', '60.0 ms']);
+            ->assertSeeInOrder(['Response time', 'Median', '400 ms', 'p95', '400 ms', '1.0×', 'steady', 'Server time', 'Median', '50.0 ms', 'p95', '60.0 ms', '1.2×', 'steady']);
+    }
+
+    public function test_a_long_tail_is_flagged_against_the_median(): void
+    {
+        $this->allow();
+        foreach (range(1, 18) as $i) {
+            $this->timing(['server_ms' => 20, 'response_ms' => 100]);
+        }
+        $this->timing(['server_ms' => 200, 'response_ms' => 300]);
+        $this->timing(['server_ms' => 200, 'response_ms' => 300]);
+
+        $this->get('/performance-tracking')
+            ->assertOk()
+            ->assertSee('class="tail tail-uneven"', false)
+            ->assertSee('3.0×</b> median · some slow requests', false)
+            ->assertSee('class="tail tail-long"', false)
+            ->assertSee('10.0×</b> median · long tail', false);
     }
 
     public function test_pages_are_stable_when_requests_share_a_second(): void
@@ -245,7 +262,7 @@ class DashboardTest extends TestCase
         $this->assertStringContainsString('/orders', $html['pt-list']);
         $this->assertStringNotContainsString('/checkout', $html['pt-list']);
         $this->assertStringContainsString('data-row-id=', $html['pt-list']);
-        $this->assertStringContainsString('Response time, median / p95', $html['pt-summary']);
+        $this->assertStringContainsString('median · steady', $html['pt-summary']);
     }
 
     public function test_live_pager_links_point_at_the_dashboard(): void

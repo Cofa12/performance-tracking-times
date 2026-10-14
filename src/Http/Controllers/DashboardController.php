@@ -205,16 +205,41 @@ class DashboardController extends Controller
     }
 
     /**
-     * Nearest-rank percentiles.
+     * Nearest-rank percentiles, and how far the slow tail (p95) sits from a
+     * typical request (the median).
      *
      * @param  Collection<int, float|null>  $values
-     * @return array{p50: ?float, p95: ?float}
+     * @return array{p50: ?float, p95: ?float, ratio: ?float, tail: ?string}
      */
     public static function percentiles(Collection $values): array
     {
         $sorted = $values->filter(fn ($v) => $v !== null)->map(fn ($v) => (float) $v)->sort()->values();
         $at = fn (float $p) => $sorted->isEmpty() ? null : $sorted[max(0, (int) ceil($p * $sorted->count()) - 1)];
 
-        return ['p50' => $at(0.50), 'p95' => $at(0.95)];
+        $p50 = $at(0.50);
+        $p95 = $at(0.95);
+        $ratio = $p50 !== null && $p95 !== null && $p50 > 0 ? $p95 / $p50 : null;
+
+        return ['p50' => $p50, 'p95' => $p95, 'ratio' => $ratio, 'tail' => self::tail($ratio)];
+    }
+
+    /**
+     * "steady" while the p95 stays within the warning multiple of the
+     * median, "uneven" up to the critical multiple, "long" beyond it.
+     */
+    public static function tail(?float $ratio): ?string
+    {
+        if ($ratio === null) {
+            return null;
+        }
+
+        $warning = (float) config('performance-tracking.p95_ratio.warning', 3);
+        $critical = (float) config('performance-tracking.p95_ratio.critical', 5);
+
+        return match (true) {
+            $ratio > $critical => 'long',
+            $ratio >= $warning => 'uneven',
+            default => 'steady',
+        };
     }
 }

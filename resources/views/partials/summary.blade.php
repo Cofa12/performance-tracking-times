@@ -1,14 +1,8 @@
 @php use Cofa\PerformanceTracking\Format; @endphp
 <div class="stack-gap">
     <div class="tiles">
-        <div class="card tile">
-            <div class="label">Response time, median / p95</div>
-            <div class="value">{{ Format::ms($summary['client']['p50']) }} <span class="muted">/</span> {{ Format::ms($summary['client']['p95']) }}</div>
-        </div>
-        <div class="card tile">
-            <div class="label">Server time, median / p95</div>
-            <div class="value">{{ Format::ms($summary['server']['p50']) }} <span class="muted">/</span> {{ Format::ms($summary['server']['p95']) }}</div>
-        </div>
+        @include('performance-tracking::partials.percentile-tile', ['title' => 'Response time', 'p' => $summary['client']])
+        @include('performance-tracking::partials.percentile-tile', ['title' => 'Server time', 'p' => $summary['server']])
         <div class="card tile">
             <div class="label">Requests with client timings</div>
             <div class="value">{{ number_format($summary['client_share'] * 100, 0) }}%</div>

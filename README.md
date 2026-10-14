@@ -236,6 +236,16 @@ server                            t1 ─ delay ─ boot ─ app ─ t2
 
 The dashboard updates itself while it is open: every 5 seconds (`PERFORMANCE_TRACKING_REFRESH_SECONDS`, 0 turns it off) it fetches the latest requests, new rows appear at the top, and a row is highlighted again when its client report arrives. It pauses while the tab is in the background and has a Pause button. Older pages (`?page=2` and on) stay still, so rows do not shift while you read them. A request's page refreshes until its client report arrives, then stops.
 
+The top tiles show the median and the 95th percentile (p95) of the response time (end to end, from client reports) and of the server time, with **how many times slower the p95 is than the median**. A typical request is the median; the p95 is the slowest 5%. When the two are close, performance is consistent; when the p95 is many times the median, some requests are much slower than the rest and worth investigating:
+
+| p95 ÷ median | Shown as |
+|---|---|
+| below 3× | green, "steady" |
+| 3× to 5× | amber, "some slow requests" |
+| above 5× | red, "long tail" |
+
+Change the multiples with `p95_ratio.warning` and `p95_ratio.critical` in the config.
+
 It polls instead of keeping a connection open, so it works on any hosting, shared hosting included, without a WebSocket server.
 
 ### Access
@@ -281,6 +291,7 @@ Each row holds the method, the path, the route name, the status, the timings and
 | `sample_rate` | `1.0` | Record this fraction of requests; lower it on busy servers |
 | `path` | `performance-tracking` | Dashboard URL prefix |
 | `dashboard_auth.username` / `dashboard_auth.password` | `null` | `PERFORMANCE_TRACKING_USERNAME` / `PERFORMANCE_TRACKING_PASSWORD`: the dashboard's own login page |
+| `p95_ratio.warning` / `p95_ratio.critical` | `3` / `5` | When the p95 ÷ median badge turns amber and red |
 | `dashboard_refresh_seconds` | `5` | `PERFORMANCE_TRACKING_REFRESH_SECONDS`; 0 turns live updates off |
 | `expose_server_timing` | `true` in `local` only | `PERFORMANCE_TRACKING_SERVER_TIMING` |
 | `request_start_server_param` / `request_start_header` | `REQUEST_START_TIME` / `X-Request-Start` | Where the web server's receive stamp comes from |

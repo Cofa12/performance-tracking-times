@@ -193,4 +193,17 @@ return [
     |--------------------------------------------------------------------------
     */
     'slow_threshold_ms' => 1000,
+
+    /*
+    |--------------------------------------------------------------------------
+    | 95th percentile against the median
+    |--------------------------------------------------------------------------
+    | The dashboard shows how many times slower the p95 is than the median.
+    | Below `warning` it is green (steady), up to `critical` amber (some slow
+    | requests), above it red (a long tail of slow requests).
+    */
+    'p95_ratio' => [
+        'warning' => 3,
+        'critical' => 5,
+    ],
 ];

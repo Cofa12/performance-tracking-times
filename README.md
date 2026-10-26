@@ -183,7 +183,70 @@ There is no script to load, so the app reports the timestamps itself with a smal
 3. Per server `n`, keep the clock offset from the fastest exchange: `((t1 - t0) + (t2 - t3)) / 2`, where fastest means the smallest `(t3 - t0) - (t2 - t1)`. Refresh it every 10 minutes.
 4. Every few seconds (or at 20 entries), and when the app goes to the background, POST up to 50 entries as JSON to `/{path}/api/client` (`/performance-tracking/api/client` by default).
 
-Ready-made wrappers: [Flutter](docs/clients/request_timing.dart) and [React Native / JavaScript without a page](docs/clients/requestTiming.ts). Swift and Kotlin follow the same four steps.
+Ready-made wrappers do all four steps. Copy the one for the app's platform and set the API's address at its top:
+
+| Platform | File | How it hooks in |
+|---|---|---|
+| iOS (Swift, iOS 15+) | [RequestTiming.swift](docs/clients/RequestTiming.swift) | `RequestTiming.shared.data(for:)` instead of `URLSession.shared.data(for:)` |
+| Android (Kotlin, OkHttp 4+ / Retrofit) | [RequestTiming.kt](docs/clients/RequestTiming.kt) | Add `RequestTiming.interceptor` to the `OkHttpClient`: every call is timed, no other change |
+| Flutter | [request_timing.dart](docs/clients/request_timing.dart) | `RequestTiming.instance.send(client, request)` instead of `client.send(request)` |
+| React Native / JavaScript without a page | [requestTiming.ts](docs/clients/requestTiming.ts) | `timedFetch()` instead of `fetch()` |
+
+Each one also sends its queued timings when you call its `flush()`, which the app should do when it goes to the background.
+
+#### Measuring calculating time
+
+Calculating time is the work the app does to prepare a request before sending it: building and encoding the body, signing, encrypting, compressing an image for upload. Every wrapper has `measure()`, which runs that preparation, times it, and reports it with the request (on Android, `time()` does the same for Retrofit calls):
+
+```swift
+// iOS
+let (data, response) = try await RequestTiming.shared.measure {
+    var request = URLRequest(url: ordersURL)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONEncoder().encode(order)      // counted as calculating
+    return request
+}
+```
+
+```kotlin
+// Android, OkHttp (blocking: call it from Dispatchers.IO)
+val response = RequestTiming.measure(client) {
+    val body = gson.toJson(buildOrder(cart))                // counted as calculating
+    Request.Builder().url("https://api.example.com/api/orders")
+        .post(body.toRequestBody("application/json".toMediaType()))
+        .build()
+}
+
+// Android, Retrofit: time the preparation and pass it as a @Tag
+// @POST("orders") suspend fun createOrder(@Body order: Order, @Tag calc: RequestTiming.CalcTime?): OrderResponse
+val (order, calc) = RequestTiming.time { buildOrder(cart) } // counted as calculating
+api.createOrder(order, calc)
+```
+
+```dart
+// Flutter
+final response = await RequestTiming.instance.measure(client, () async {
+  final body = jsonEncode(buildOrder(cart));              // counted as calculating
+  return http.Request('POST', Uri.parse('https://api.example.com/api/orders'))
+    ..headers['Content-Type'] = 'application/json'
+    ..body = body;
+});
+```
+
+```ts
+// React Native
+const response = await measure(async () => {
+  const body = JSON.stringify(buildOrder(cart));          // counted as calculating
+  return ['https://api.example.com/api/orders', { method: 'POST', body }];
+});
+```
+
+- Put only the preparation inside `measure()`. Another network call (a token refresh, an upload URL request) belongs outside it, or its time is counted as calculating.
+- The time is measured with a monotonic clock (`DispatchTime` on iOS, `System.nanoTime()` on Android, `Stopwatch` in Dart, `performance.now()` in React Native), so the phone changing its clock does not affect it.
+- To measure it yourself, pass the milliseconds as `calcMs` to `data(for:calcMs:)` (iOS), `send()` (Flutter) or `timedFetch()` (React Native); on Android attach a `RequestTiming.CalcTime` tag to the request.
+- The Android interceptor reports when the response headers arrived (OkHttp hands the body to the caller afterwards), so those requests are marked "headers only" and their network return does not include downloading the body. The iOS and Flutter wrappers read the whole body.
+- Values over 10 minutes are dropped by the wrappers, since the server would reject the report.
 
 The report format:
 

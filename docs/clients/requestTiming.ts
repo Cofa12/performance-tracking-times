@@ -2,13 +2,32 @@
 // Native, or any JavaScript runtime without a browser page. In a web page,
 // load client.js instead. See the README, "Mobile app".
 //
+// A plain call:
+//
 //   const response = await timedFetch('https://api.example.com/api/orders');
+//
+// With "calculating" time: the work the app does to prepare the request
+// (building and encoding the body, signing, encrypting, compressing an
+// upload) is timed and reported with it:
+//
+//   const response = await measure(async () => {
+//     const body = JSON.stringify(buildOrder(cart));   // counted as calculating
+//     return ['https://api.example.com/api/orders', { method: 'POST', body }];
+//   });
 //
 // Call flush() from an AppState 'background' listener.
 
 // Change to your API's address.
 const ENDPOINT = 'https://api.example.com/performance-tracking/api/client';
 const OFFSET_TTL_MS = 10 * 60 * 1000;
+// Server limit for calculating time; a larger value would get the whole
+// report rejected, so it is dropped instead.
+const MAX_CALC_MS = 10 * 60 * 1000;
+
+// A monotonic clock where there is one (React Native and browsers have
+// performance.now()): the phone changing its clock does not affect it.
+const monotonicNow = (): number =>
+  typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
 
 type Report = {
   id: string;
@@ -23,7 +42,26 @@ const queue: Report[] = [];
 const offsets = new Map<string, { offset: number; rtt: number; at: number }>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 
-/** Use instead of fetch() for calls to the API. */
+/**
+ * Runs `prepare`, which builds the request and returns fetch()'s arguments,
+ * and reports the time it took as "calculating" along with that request.
+ * Keep other network calls (a token refresh, say) outside `prepare`: their
+ * time is not calculating.
+ */
+export async function measure(
+  prepare: () => [RequestInfo, RequestInit?] | Promise<[RequestInfo, RequestInit?]>,
+): Promise<Response> {
+  const start = monotonicNow();
+  const [input, init] = await prepare();
+  const calcMs = monotonicNow() - start;
+
+  return timedFetch(input, init, calcMs);
+}
+
+/**
+ * Use instead of fetch() for calls to the API. `calcMs` is the time spent
+ * preparing the request, if you measured it yourself (see `measure`).
+ */
 export async function timedFetch(input: RequestInfo, init?: RequestInit, calcMs?: number): Promise<Response> {
   const t0 = Date.now();
   const response = await fetch(input, init);
@@ -55,7 +93,7 @@ function record(header: string, t0: number, t3: number, calcMs?: number): void {
     t0,
     t3,
     offset_ms: offsets.get(node)?.offset ?? null,
-    ...(calcMs !== undefined ? { calc_ms: calcMs } : {}),
+    ...(calcMs !== undefined && calcMs >= 0 && calcMs <= MAX_CALC_MS ? { calc_ms: calcMs } : {}),
     headers_only: true, // t3 is when the headers arrived; the caller reads the body later
   });
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.1 - 2026-10-26
+
+### Added
+- Reference reporting clients for native apps: iOS (`docs/clients/RequestTiming.swift`, URLSession with async/await) and Android (`docs/clients/RequestTiming.kt`, an OkHttp interceptor that also covers Retrofit).
+- Every reference client (iOS, Android, Flutter, React Native) has `measure()`, which times the work that prepares a request with a monotonic clock and reports it as calculating time; on Android `time()` does the same for Retrofit through a `@Tag`. Implausible values (over 10 minutes) are dropped instead of getting the report rejected. All four clients were run against a real server.
+
 ## 2.3.0 - 2026-10-14
 
 ### Added

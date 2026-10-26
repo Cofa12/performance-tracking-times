@@ -1,8 +1,21 @@
 // Reports API request timings to cofa/performance-tracking-times from a
 // Flutter app (package:http). See the README, "Mobile app".
 //
+// A plain call:
+//
 //   final response = await RequestTiming.instance.send(
 //       client, http.Request('GET', Uri.parse('https://api.example.com/api/orders')));
+//
+// With "calculating" time: the work the app does to prepare the request
+// (building and encoding the body, signing, encrypting, compressing an
+// upload) is timed and reported with it:
+//
+//   final response = await RequestTiming.instance.measure(client, () async {
+//     final body = jsonEncode(buildOrder(cart));          // counted as calculating
+//     return http.Request('POST', Uri.parse('https://api.example.com/api/orders'))
+//       ..headers['Content-Type'] = 'application/json'
+//       ..body = body;
+//   });
 //
 // Call RequestTiming.instance.flush() when the app goes to the background.
 
@@ -26,7 +39,26 @@ class RequestTiming {
 
   static double _now() => DateTime.now().microsecondsSinceEpoch / 1000;
 
+  /// Server limit for calculating time; a larger value would get the whole
+  /// report rejected, so it is dropped instead.
+  static const _maxCalcMs = 10 * 60 * 1000;
+
+  /// Runs [prepare], which builds the request, and reports the time it took
+  /// as "calculating" along with the request it returns. Keep other network
+  /// calls (a token refresh, say) outside [prepare]: their time is not
+  /// calculating.
+  Future<http.Response> measure(http.Client client, FutureOr<http.BaseRequest> Function() prepare) async {
+    // Stopwatch is monotonic: the phone changing its clock does not affect it.
+    final stopwatch = Stopwatch()..start();
+    final request = await prepare();
+    final calcMs = stopwatch.elapsedMicroseconds / 1000;
+
+    return send(client, request, calcMs: calcMs);
+  }
+
   /// Use instead of client.send() for calls to the API. Reads the whole body.
+  /// [calcMs] is the time spent preparing the request, if you measured it
+  /// yourself (see [measure]).
   Future<http.Response> send(http.Client client, http.BaseRequest request, {double? calcMs}) async {
     final t0 = _now();
     final response = await http.Response.fromStream(await client.send(request));
@@ -59,7 +91,7 @@ class RequestTiming {
       't0': t0,
       't3': t3,
       'offset_ms': _offsets[node]?.offset,
-      if (calcMs != null) 'calc_ms': calcMs,
+      if (calcMs != null && calcMs >= 0 && calcMs <= _maxCalcMs) 'calc_ms': calcMs,
     });
 
     if (_queue.length >= 20) {

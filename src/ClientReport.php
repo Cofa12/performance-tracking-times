@@ -3,6 +3,8 @@
 namespace Cofa\PerformanceTracking;
 
 use Cofa\PerformanceTracking\Models\PerformanceTiming;
+use Cofa\PerformanceTracking\Storage\DatabaseDriver;
+use Cofa\PerformanceTracking\Storage\StorageDriver;
 
 /**
  * Applies the client side of each exchange to its recorded request.
@@ -23,6 +25,15 @@ use Cofa\PerformanceTracking\Models\PerformanceTiming;
 final class ClientReport
 {
     public const MAX_ENTRIES = 50;
+
+    public function __construct(private ?StorageDriver $storage = null)
+    {
+    }
+
+    private function storage(): StorageDriver
+    {
+        return $this->storage ?? (app()->bound(StorageDriver::class) ? app(StorageDriver::class) : new DatabaseDriver());
+    }
 
     private const RULES = [
         'id' => ['required', 'uuid'],
@@ -54,11 +65,10 @@ final class ClientReport
             $valid[strtolower($entry['id'])] = $entry;
         }
 
-        $records = $valid === [] ? collect() : PerformanceTiming::query()
-            ->whereIn('id', array_keys($valid))
-            ->whereNull('client_reported_at')
-            ->where('created_at', '>=', now()->subMinutes((int) config('performance-tracking.client_report_window_minutes', 10)))
-            ->get(['id', 'server_received_ms', 'server_sent_ms', 'server_ms']);
+        $records = $valid === [] ? collect() : $this->storage()->findMany(
+            array_keys($valid),
+            ['id', 'server_received_ms', 'server_sent_ms', 'server_ms']
+        );
 
         $accepted = 0;
 
@@ -66,10 +76,9 @@ final class ClientReport
             $values = $this->values($record, $valid[strtolower($record->id)]);
 
             // Conditional, so two concurrent reports cannot both apply.
-            $accepted += $values === null ? 0 : PerformanceTiming::query()
-                ->whereKey($record->id)
-                ->whereNull('client_reported_at')
-                ->update($values);
+            if ($values !== null && $this->storage()->updateIfUnreported($record->id, $values)) {
+                $accepted++;
+            }
         }
 
         return ['accepted' => $accepted, 'rejected' => $rejected + count($valid) - $accepted];

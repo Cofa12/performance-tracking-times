@@ -41,7 +41,18 @@ PERFORMANCE_TRACKING_ENABLED=true
 PERFORMANCE_TRACKING_SAMPLE_RATE=0.05   # 5% of requests
 ```
 
-Every recorded request is one row (plus up to 50 query texts), so keep the sample rate low on busy servers and keep the timings in their own database if you like (`PERFORMANCE_TRACKING_DB_CONNECTION`).
+Every recorded request is one record (plus up to 50 query texts). You can choose between two storage drivers:
+
+```dotenv
+# "database" (default) or "file" (zero DB connection overhead)
+PERFORMANCE_TRACKING_STORAGE_DRIVER=database
+
+# When using "file":
+PERFORMANCE_TRACKING_FILE_ENCRYPT=true   # Encrypts records at rest using Laravel's APP_KEY
+```
+
+- **`database`**: Stores timings in the database table (`performance_timings`). You can direct this to a dedicated connection with `PERFORMANCE_TRACKING_DB_CONNECTION`.
+- **`file`**: Appends encrypted newline-delimited JSON (NDJSON) to disk (`storage/performance-tracking/`). **Eliminates database connection overhead during request recording**, preventing connection pool starvation. All records are encrypted at rest with your `APP_KEY` (AES-256-CBC/GCM).
 
 To publish the config:
 

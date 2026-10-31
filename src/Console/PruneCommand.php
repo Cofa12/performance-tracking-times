@@ -3,6 +3,8 @@
 namespace Cofa\PerformanceTracking\Console;
 
 use Cofa\PerformanceTracking\Models\PerformanceTiming;
+use Cofa\PerformanceTracking\Storage\DatabaseDriver;
+use Cofa\PerformanceTracking\Storage\StorageDriver;
 use Illuminate\Console\Command;
 
 class PruneCommand extends Command
@@ -13,24 +15,15 @@ class PruneCommand extends Command
 
     protected $description = 'Delete old request timing records';
 
-    public function handle(): int
+    public function handle(?StorageDriver $storage = null): int
     {
+        $storage ??= app()->bound(StorageDriver::class) ? app(StorageDriver::class) : new DatabaseDriver();
+
         $hours = (int) ($this->option('hours') ?? config('performance-tracking.retention_hours', 48));
         $chunk = max(1, (int) $this->option('chunk'));
         $cutoff = now()->subHours($hours);
-        $deleted = 0;
 
-        // Small batches keep each statement short: one huge DELETE holds
-        // locks for minutes and stalls replicas on a busy table.
-        do {
-            $ids = PerformanceTiming::query()
-                ->where('created_at', '<', $cutoff)
-                ->limit($chunk)
-                ->pluck('id');
-
-            $batch = $ids->isEmpty() ? 0 : PerformanceTiming::query()->whereKey($ids->all())->delete();
-            $deleted += $batch;
-        } while ($batch >= $chunk);
+        $deleted = $storage->prune($cutoff, $chunk);
 
         $this->info("Deleted {$deleted} timing records older than {$hours} hours.");
 

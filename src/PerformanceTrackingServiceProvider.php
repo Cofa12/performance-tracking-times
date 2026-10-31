@@ -5,6 +5,9 @@ namespace Cofa\PerformanceTracking;
 use Cofa\PerformanceTracking\Console\PasswordCommand;
 use Cofa\PerformanceTracking\Console\PruneCommand;
 use Cofa\PerformanceTracking\Http\Middleware\RecordPerformance;
+use Cofa\PerformanceTracking\Storage\DatabaseDriver;
+use Cofa\PerformanceTracking\Storage\FileDriver;
+use Cofa\PerformanceTracking\Storage\StorageDriver;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Container\Container;
@@ -20,6 +23,20 @@ class PerformanceTrackingServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/performance-tracking.php', 'performance-tracking');
+
+        $this->app->singleton(StorageDriver::class, function ($app) {
+            $driver = $app['config']->get('performance-tracking.driver', 'database');
+
+            if ($driver === 'file') {
+                $path = $app['config']->get('performance-tracking.file.path') ?: storage_path('performance-tracking');
+                $encrypt = (bool) $app['config']->get('performance-tracking.file.encrypt', true);
+                $encrypter = $app->bound('encrypter') ? $app->make('encrypter') : null;
+
+                return new FileDriver($path, $encrypter, $encrypt);
+            }
+
+            return new DatabaseDriver();
+        });
 
         // Scoped so Octane gets a fresh recorder per request.
         $this->app->scoped(Recorder::class, fn ($app) => new Recorder($app['config']));

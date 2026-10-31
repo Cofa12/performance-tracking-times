@@ -4,6 +4,9 @@ namespace Cofa\PerformanceTracking\Http\Controllers;
 
 use Cofa\PerformanceTracking\ClientScript;
 use Cofa\PerformanceTracking\Models\PerformanceTiming;
+use Cofa\PerformanceTracking\Storage\DatabaseDriver;
+use Cofa\PerformanceTracking\Storage\QueryScope;
+use Cofa\PerformanceTracking\Storage\StorageDriver;
 use Cofa\PerformanceTracking\Timeline;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,6 +19,15 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 class DashboardController extends Controller
 {
     public const SUMMARY_SIZE = 1000;
+
+    public function __construct(private ?StorageDriver $storage = null)
+    {
+    }
+
+    private function storage(): StorageDriver
+    {
+        return $this->storage ?? (app()->bound(StorageDriver::class) ? app(StorageDriver::class) : new DatabaseDriver());
+    }
 
     public function index(Request $request): View
     {
@@ -46,7 +58,7 @@ class DashboardController extends Controller
 
     public function show(string $id): View
     {
-        $timing = PerformanceTiming::findOrFail($id);
+        $timing = $this->storage()->find($id) ?? abort(404);
 
         return view('performance-tracking::show', [
             'timing' => $timing,
@@ -62,7 +74,7 @@ class DashboardController extends Controller
      */
     public function showLive(string $id): JsonResponse
     {
-        $timing = PerformanceTiming::findOrFail($id);
+        $timing = $this->storage()->find($id) ?? abort(404);
 
         return $this->fragments([
             'pt-request' => view('performance-tracking::partials.request', [
@@ -133,43 +145,37 @@ class DashboardController extends Controller
         ]);
     }
 
-    /**
-     * @param  Builder<PerformanceTiming>  $query
-     * @return Builder<PerformanceTiming>
-     */
-    private function newestFirst(Builder $query): Builder
+    private function newestFirst(QueryScope $query): QueryScope
     {
         // created_at has one-second resolution; the server timestamp has
         // milliseconds, and the id breaks the remaining ties.
         return $query->orderByDesc('server_received_ms')->orderByDesc('id');
     }
 
-    /**
-     * @return Builder<PerformanceTiming>
-     */
-    private function filtered(Request $request): Builder
+    private function filtered(Request $request): QueryScope
     {
         $slowMs = (int) config('performance-tracking.slow_threshold_ms', 1000);
+        $query = $this->storage()->query();
 
-        return PerformanceTiming::query()
-            ->when($request->filled('q'), fn (Builder $q) => $q->where(function (Builder $q) use ($request) {
-                $term = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], (string) $request->string('q')).'%';
-                $grammar = $q->getQuery()->getGrammar();
+        if ($request->filled('q')) {
+            $term = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], (string) $request->string('q')).'%';
+            $query->whereLike(['path', 'route_name'], $term);
+        }
 
-                // An explicit ESCAPE, since SQLite has none by default; "!"
-                // rather than a backslash, which each database quotes differently.
-                $q->whereRaw($grammar->wrap('path')." like ? escape '!'", [$term])
-                    ->orWhereRaw($grammar->wrap('route_name')." like ? escape '!'", [$term]);
-            }))
-            ->when($request->filled('method'), fn (Builder $q) => $q->where('method', strtoupper((string) $request->string('method'))))
-            ->when(in_array($request->input('status'), ['2', '3', '4', '5'], true), function (Builder $q) use ($request) {
-                $base = (int) $request->input('status') * 100;
-                $q->whereBetween('status', [$base, $base + 99]);
-            })
-            ->when($request->boolean('slow'), fn (Builder $q) => $q->where(function (Builder $q) use ($slowMs) {
-                $q->where('response_ms', '>=', $slowMs)
-                    ->orWhere(fn (Builder $q) => $q->whereNull('response_ms')->where('server_ms', '>=', $slowMs));
-            }));
+        if ($request->filled('method')) {
+            $query->where('method', '=', strtoupper((string) $request->string('method')));
+        }
+
+        if (in_array($request->input('status'), ['2', '3', '4', '5'], true)) {
+            $base = (int) $request->input('status') * 100;
+            $query->whereBetween('status', [$base, $base + 99]);
+        }
+
+        if ($request->boolean('slow')) {
+            $query->whereSlow($slowMs);
+        }
+
+        return $query;
     }
 
     /**

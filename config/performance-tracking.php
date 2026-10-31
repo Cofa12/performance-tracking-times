@@ -175,7 +175,18 @@ return [
     |--------------------------------------------------------------------------
     | Storage
     |--------------------------------------------------------------------------
+    | "database" (default): stores request timings in a database table.
+    | "file": appends encrypted JSON lines to disk. Eliminates DB connections
+    | during request monitoring and avoids connection pool starvation.
     */
+    'driver' => env('PERFORMANCE_TRACKING_STORAGE_DRIVER', 'database'),
+
+    'file' => [
+        'path' => storage_path('performance-tracking'),
+        // Encrypt records at rest using Laravel's APP_KEY (AES-256-CBC/GCM)
+        'encrypt' => (bool) env('PERFORMANCE_TRACKING_FILE_ENCRYPT', true),
+    ],
+
     'connection' => env('PERFORMANCE_TRACKING_DB_CONNECTION'),
 
     'table' => 'performance_timings',

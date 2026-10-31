@@ -3,6 +3,8 @@
 namespace Cofa\PerformanceTracking;
 
 use Cofa\PerformanceTracking\Models\PerformanceTiming;
+use Cofa\PerformanceTracking\Storage\DatabaseDriver;
+use Cofa\PerformanceTracking\Storage\StorageDriver;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Request;
@@ -27,8 +29,13 @@ class Recorder
 
     private ?Sample $current = null;
 
-    public function __construct(private readonly Repository $config)
+    public function __construct(private readonly Repository $config, private ?StorageDriver $storage = null)
     {
+    }
+
+    private function storage(): StorageDriver
+    {
+        return $this->storage ?? (app()->bound(StorageDriver::class) ? app(StorageDriver::class) : new DatabaseDriver());
     }
 
     private function config(string $key, mixed $default = null): mixed
@@ -214,7 +221,7 @@ class Recorder
     private function store(Sample $sample): void
     {
         try {
-            PerformanceTiming::create($sample->attributes());
+            $this->storage()->write($sample->attributes());
         } catch (Throwable $e) {
             // Monitoring must never break the application.
             Log::warning('performance-tracking: could not store timing', ['exception' => $e->getMessage()]);

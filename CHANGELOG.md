@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.4.0 - 2026-10-31
+
+### Added
+- Encrypted file-based storage driver (`PERFORMANCE_TRACKING_STORAGE_DRIVER=file`): writes newline-delimited JSON (NDJSON) to disk with zero database connection overhead, eliminating connection pool exhaustion during request monitoring.
+- Authenticated encryption at rest (`PERFORMANCE_TRACKING_FILE_ENCRYPT=true`): records are individually encrypted using Laravel's `APP_KEY` (AES-256-CBC / AES-GCM) so sensitive URLs, queries, and IDs are never stored in cleartext.
+- In-memory querying, filtering, and simple pagination for the dashboard when using the file driver.
+- Log-structured merges for client beacon reports without file rewrite contention.
+
 ## 2.3.1 - 2026-10-26
 
 ### Added

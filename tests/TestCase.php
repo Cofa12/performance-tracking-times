@@ -21,6 +21,7 @@ abstract class TestCase extends Orchestra
         // Off by default outside "local"; the tests run as "testing".
         $app['config']->set('performance-tracking.enabled', true);
         $app['config']->set('database.default', 'testing');
+        $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('k', 32)));
 
         // SQLite by default; TEST_DB=mysql or TEST_DB=pgsql runs the same suite there.
         $app['config']->set('database.connections.testing', match (getenv('TEST_DB')) {
